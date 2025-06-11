@@ -10,54 +10,40 @@ import os # Not strictly needed if only using simple relative path for root file
 st.set_page_config(
     page_title="Focused Suicide Stats Dashboard",
     layout="wide",
-    initial_sidebar_state="expanded" # Keep sidebar expanded for filters
+    initial_sidebar_state="expanded"
 )
 
 # --- Helper Function for Age Sorting ---
 def age_sort_key(age_str):
     if pd.isna(age_str):
         return -1
-    age_str = str(age_str) # Ensure it's a string
+    age_str = str(age_str)
     return int(age_str.replace(' years', '').split('-')[0].replace('+', ''))
 
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    # CSV is in the SAME directory (root) as app.py in your GitHub repository.
     file_path = "who_suicide_statistics.csv" 
-    
     try:
         df_loaded = pd.read_csv(file_path)
     except FileNotFoundError:
-        st.error(f"FATAL ERROR: Data file '{file_path}' not found. "
-                 f"Please ensure 'who_suicide_statistics.csv' is in the ROOT of your GitHub repository, "
-                 f"alongside app.py, and that the repository has been cloned/updated by Streamlit Cloud.")
-        return pd.DataFrame() # Return an empty DataFrame on critical error
-
-    # Perform all initial data cleaning and transformations here
+        st.error(f"FATAL ERROR: Data file '{file_path}' not found. Ensure it's in the ROOT of your GitHub repository.")
+        return pd.DataFrame() 
     df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
     df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
-    
-    # Calculate suicide rate
     df_loaded['suicide_rate'] = np.where(
         (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
-        (df_loaded['suicides_no'] / df_loaded['population']) * 100000,
-        0 
+        (df_loaded['suicides_no'] / df_loaded['population']) * 100000, 0 
     )
-    
     df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df_loaded['age'] = df_loaded['age'].astype(str) # Ensure age is string type for sorting key
-    
+    df_loaded['age'] = df_loaded['age'].astype(str)
     return df_loaded
 
 # --- Main Application Logic ---
-
-# 1. Load the data
 df_original = load_data()
 
-# 2. Check if data loading was successful; if not, stop the app.
 if df_original.empty:
-    st.error("Application cannot start because data loading failed. Please check the error message above and your file paths.")
+    st.error("Application cannot start: data loading failed.")
     st.stop()
 
 # --- Sidebar Filters ---
@@ -66,11 +52,13 @@ min_year_global, max_year_global = int(df_original['year'].min()), int(df_origin
 selected_year_range_global = st.sidebar.slider(
     "Year Range:",
     min_year_global, max_year_global,
-    (max(min_year_global, max_year_global - 5), max_year_global), # Default to last 5 available years
+    (max(min_year_global, max_year_global - 5), max_year_global),
     key="global_year_slider_sidebar"
 )
 
-# Ensure 'sex' column exists before trying to get unique values
+# Initialize unique_sex_global and unique_ages_global with defaults
+unique_sex_global = []
+selected_sex_global = []
 if 'sex' in df_original.columns:
     unique_sex_global = df_original['sex'].unique()
     selected_sex_global = st.sidebar.multiselect(
@@ -80,9 +68,9 @@ if 'sex' in df_original.columns:
     )
 else:
     st.sidebar.warning("Column 'sex' not found in data.")
-    selected_sex_global = [] 
 
-# Ensure 'age' column exists
+unique_ages_global = []
+selected_age_global = []
 if 'age' in df_original.columns:
     unique_ages_global = sorted(df_original['age'].dropna().unique(), key=age_sort_key)
     selected_age_global = st.sidebar.multiselect(
@@ -92,11 +80,9 @@ if 'age' in df_original.columns:
     )
 else:
     st.sidebar.warning("Column 'age' not found in data.")
-    selected_age_global = []
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Data: WHO via Kaggle.")
-
 
 # Apply global filters
 year_condition = (df_original['year'] >= selected_year_range_global[0]) & \
@@ -112,20 +98,19 @@ if selected_age_global and 'age' in df_original.columns:
 
 df_filtered_global = df_original[year_condition & sex_condition & age_condition].copy()
 
-
 # --- Main Dashboard Area ---
 st.markdown("#### 🎯 Focused Suicide Statistics Dashboard")
-# Dynamic filter summary
+
+# Dynamic filter summary - Ensure variables are defined
 sex_summary_text = 'All'
-if selected_sex_global and 'sex' in df_original.columns and len(selected_sex_global) < len(df_original['sex'].unique()):
+if selected_sex_global and 'sex' in df_original.columns and unique_sex_global is not None and len(unique_sex_global) > 0 and len(selected_sex_global) < len(unique_sex_global):
     sex_summary_text = ', '.join(selected_sex_global)
 
 age_summary_text = 'All Ages'
-if selected_age_global and 'age' in df_original.columns and len(selected_age_global) < len(df_original['age'].dropna().unique()):
+if selected_age_global and 'age' in df_original.columns and unique_ages_global is not None and len(unique_ages_global) > 0 and len(selected_age_global) < len(unique_ages_global):
     age_summary_text = f"{len(selected_age_global)} groups"
 
 st.caption(f"Displaying data for: Years {selected_year_range_global[0]}-{selected_year_range_global[1]} | Sex: {sex_summary_text} | Ages: {age_summary_text}")
-
 
 # --- 2x2 Grid for Visuals ---
 if not df_filtered_global.empty:
@@ -145,7 +130,7 @@ if not df_filtered_global.empty:
         st.caption(f"Map showing year: {selected_map_year}")
 
         map_data_source = df_original[
-            (df_original['year'] == selected_map_year) & sex_condition & age_condition
+            (df_original['year'] == selected_map_year) & sex_condition & age_condition # Apply global sex/age conditions
         ].copy()
 
         country_map_data = map_data_source.groupby('country').agg(
