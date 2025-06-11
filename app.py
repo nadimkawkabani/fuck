@@ -135,7 +135,6 @@ def display_main_dashboard(df_original_data):
         "Year Range:", min_year, max_year, (max(min_year, max_year - 5), max_year),
         key="main_dash_year_slider"
     )
-
     options_sex, default_sex, selected_sex = [], [], []
     if 'sex' in df_original_data.columns and df_original_data['sex'].notna().any():
         options_sex = sorted(list(df_original_data['sex'].dropna().unique()))
@@ -188,7 +187,6 @@ def display_main_dashboard(df_original_data):
         if selected_sex and 'sex' in df_original_data.columns: map_sex_c = df_original_data['sex'].isin(selected_sex)
         map_age_c = pd.Series(True, index=df_original_data.index)
         if selected_ages and 'age' in df_original_data.columns: map_age_c = df_original_data['age'].isin(selected_ages)
-
         map_src = df_original_data[(df_original_data['year'] == sel_map_yr) & map_sex_c & map_age_c].copy()
         if 'country' in map_src.columns:
             country_map = map_src.groupby('country').agg(s=('suicides_no','sum'),p=('population','sum')).reset_index()
