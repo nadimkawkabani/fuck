@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-# import os # Commented out as we are using the simplest path loading
+# import os
 
 # --- Page Config ---
 st.set_page_config(
@@ -15,8 +15,7 @@ st.set_page_config(
 
 # --- Helper Function for Age Sorting ---
 def age_sort_key(age_str):
-    if pd.isna(age_str):
-        return -1
+    if pd.isna(age_str): return -1
     age_str = str(age_str)
     return int(age_str.replace(' years', '').split('-')[0].replace('+', ''))
 
@@ -26,23 +25,18 @@ def load_data():
     file_path = "who_suicide_statistics.csv" 
     try:
         df_loaded = pd.read_csv(file_path)
-        st.success(f"Successfully loaded data from '{file_path}'. Shape: {df_loaded.shape}") # For debugging
+        # st.success(f"Data loaded. Shape: {df_loaded.shape}") # For debugging if needed
     except FileNotFoundError:
-        st.error(f"FATAL ERROR: Data file '{file_path}' not found. "
-                 f"Ensure 'who_suicide_statistics.csv' is in the ROOT of your GitHub repository, "
-                 f"alongside app.py.")
+        st.error(f"FATAL ERROR: Data file '{file_path}' not found.")
         return pd.DataFrame() 
-    except Exception as e: # Catch any other pandas read_csv errors
-        st.error(f"Error loading data from '{file_path}': {e}")
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
-    # Data Cleaning (only if df_loaded is not empty)
     if not df_loaded.empty:
         try:
-            if 'suicides_no' in df_loaded.columns:
-                df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
-            if 'population' in df_loaded.columns:
-                df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
+            if 'suicides_no' in df_loaded.columns: df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
+            if 'population' in df_loaded.columns: df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
             
             if 'population' in df_loaded.columns and 'suicides_no' in df_loaded.columns:
                 df_loaded['suicide_rate'] = np.where(
@@ -51,28 +45,30 @@ def load_data():
                 )
             
             df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
-            if 'age' in df_loaded.columns:
-                df_loaded['age'] = df_loaded['age'].astype(str)
-            else:
-                st.warning("Column 'age' not found during data loading, age-related features might not work.")
+            if 'age' in df_loaded.columns: df_loaded['age'] = df_loaded['age'].astype(str)
         except Exception as e:
             st.error(f"Error during data cleaning: {e}")
-            return pd.DataFrame() # Return empty if cleaning fails
-    
+            return pd.DataFrame()
     return df_loaded
 
 # --- Main Application Logic ---
 df_original = load_data()
 
 if df_original.empty:
-    st.error("Application cannot start because data loading or initial processing failed. Please check error messages above.")
+    st.error("App cannot start: data loading/processing failed.")
     st.stop()
 
 # --- Sidebar Filters ---
 st.sidebar.markdown("### Filters")
 
-# Year Filter (should be safe as 'year' is fundamental)
-min_year_global, max_year_global = int(df_original['year'].min()), int(df_original['year'].max())
+# Year Filter
+min_year_global, max_year_global = 0, 0 # Initialize
+if 'year' in df_original.columns and not df_original['year'].empty:
+    min_year_global, max_year_global = int(df_original['year'].min()), int(df_original['year'].max())
+else:
+    st.sidebar.error("Year column missing or empty. Cannot create year filter.")
+    st.stop() # Critical filter
+
 selected_year_range_global = st.sidebar.slider(
     "Year Range:",
     min_year_global, max_year_global,
@@ -80,32 +76,33 @@ selected_year_range_global = st.sidebar.slider(
     key="global_year_slider_sidebar"
 )
 
-# Sex Filter (with robust checks)
-unique_sex_global = []
-selected_sex_global = []
+# Sex Filter
+options_sex = []
+default_sex = []
 if 'sex' in df_original.columns:
-    unique_sex_global = list(df_original['sex'].unique()) # Convert to list for consistency
-    selected_sex_global = st.sidebar.multiselect(
-        "Sex:",
-        options=unique_sex_global, default=list(unique_sex_global), # Pass list as default
-        key="global_sex_multiselect_sidebar"
-    )
-else:
-    st.sidebar.warning("Column 'sex' not found in data. Sex filter disabled.")
+    options_sex = list(df_original['sex'].unique())
+    default_sex = list(options_sex) # Default to all available sexes
+selected_sex_global = st.sidebar.multiselect(
+    "Sex:", options=options_sex, default=default_sex,
+    key="global_sex_multiselect_sidebar",
+    disabled=not options_sex # Disable if no options
+)
+if not options_sex: st.sidebar.warning("Sex data unavailable for filtering.")
 
-# Age Filter (with robust checks)
-unique_ages_global = []
-selected_age_global = []
+
+# Age Filter
+options_ages = []
+default_ages = []
 if 'age' in df_original.columns:
-    # Ensure all values are strings before sorting, and dropna
-    unique_ages_global = sorted(list(df_original['age'].astype(str).dropna().unique()), key=age_sort_key)
-    selected_age_global = st.sidebar.multiselect(
-        "Age Groups:",
-        options=unique_ages_global, default=list(unique_ages_global), # Pass list as default
-        key="global_age_multiselect_sidebar"
-    )
-else:
-    st.sidebar.warning("Column 'age' not found in data. Age filter disabled.")
+    options_ages = sorted(list(df_original['age'].astype(str).dropna().unique()), key=age_sort_key)
+    default_ages = list(options_ages) # Default to all available ages
+selected_age_global = st.sidebar.multiselect(
+    "Age Groups:", options=options_ages, default=default_ages,
+    key="global_age_multiselect_sidebar",
+    disabled=not options_ages # Disable if no options
+)
+if not options_ages: st.sidebar.warning("Age data unavailable for filtering.")
+
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Data: WHO via Kaggle.")
@@ -115,36 +112,36 @@ conditions = [
     (df_original['year'] >= selected_year_range_global[0]) & \
     (df_original['year'] <= selected_year_range_global[1])
 ]
-
 if selected_sex_global and 'sex' in df_original.columns:
     conditions.append(df_original['sex'].isin(selected_sex_global))
-
 if selected_age_global and 'age' in df_original.columns:
     conditions.append(df_original['age'].isin(selected_age_global))
 
-# Combine all conditions using logical AND
 final_condition = pd.Series(True, index=df_original.index)
-for cond in conditions:
-    final_condition = final_condition & cond
+for cond in conditions: final_condition &= cond
 df_filtered_global = df_original[final_condition].copy()
-
 
 # --- Main Dashboard Area ---
 st.markdown("#### 🎯 Focused Suicide Statistics Dashboard")
 
-# Simplified and safer filter summary
+# Define summary texts with default values first
 sex_summary_text = 'All'
-if selected_sex_global and len(unique_sex_global) > 0: # Check if unique_sex_global is populated
-    if len(selected_sex_global) < len(unique_sex_global):
+if options_sex: # Check if options_sex was populated
+    if selected_sex_global and len(selected_sex_global) < len(options_sex):
         sex_summary_text = ', '.join(selected_sex_global)
+elif 'sex' not in df_original.columns:
+    sex_summary_text = 'N/A (column missing)'
+
 
 age_summary_text = 'All Ages'
-if selected_age_global and len(unique_ages_global) > 0: # Check if unique_ages_global is populated
-    if len(selected_age_global) < len(unique_ages_global):
+if options_ages: # Check if options_ages was populated
+    if selected_age_global and len(selected_age_global) < len(options_ages):
         age_summary_text = f"{len(selected_age_global)} groups"
+elif 'age' not in df_original.columns:
+    age_summary_text = 'N/A (column missing)'
 
-st.caption(f"Displaying data for: Years {selected_year_range_global[0]}-{selected_year_range_global[1]} | Sex: {sex_summary_text} | Ages: {age_summary_text}")
 
+st.caption(f"Displaying data for: Years {selected_year_range_global[0]}-{selected_year_range_global[1]} | Sex: {sex_summary_text} | Ages: {age_summary_text}") # THIS IS LINE 81 or near it
 
 # --- 2x2 Grid for Visuals ---
 if not df_filtered_global.empty:
@@ -163,88 +160,62 @@ if not df_filtered_global.empty:
         )
         st.caption(f"Map showing year: {selected_map_year}")
         
-        # Prepare data for map: Use df_original for the selected map_year, 
-        # but still respect the global sex/age filters.
-        map_sex_condition = pd.Series(True, index=df_original.index)
-        if selected_sex_global and 'sex' in df_original.columns:
-             map_sex_condition = df_original['sex'].isin(selected_sex_global)
-        
-        map_age_condition = pd.Series(True, index=df_original.index)
-        if selected_age_global and 'age' in df_original.columns:
-             map_age_condition = df_original['age'].isin(selected_age_global)
+        map_sex_cond = pd.Series(True, index=df_original.index)
+        if selected_sex_global and 'sex' in df_original.columns: map_sex_cond = df_original['sex'].isin(selected_sex_global)
+        map_age_cond = pd.Series(True, index=df_original.index)
+        if selected_age_global and 'age' in df_original.columns: map_age_cond = df_original['age'].isin(selected_age_global)
 
         map_data_source = df_original[
-            (df_original['year'] == selected_map_year) & map_sex_condition & map_age_condition
+            (df_original['year'] == selected_map_year) & map_sex_cond & map_age_cond
         ].copy()
 
-        country_map_data = map_data_source.groupby('country').agg(
-            s_no=('suicides_no', 'sum'), pop=('population', 'sum')
-        ).reset_index()
+        country_map_data = map_data_source.groupby('country').agg(s_no=('suicides_no', 'sum'), pop=('population', 'sum')).reset_index()
         country_map_data['rate'] = np.where(country_map_data['pop'] > 0, (country_map_data['s_no'] / country_map_data['pop']) * 100000, 0)
         country_map_data.dropna(subset=['rate'], inplace=True)
-        country_name_mapping = {
-            "United States of America": "United States", "Russian Federation": "Russia",
-            "Republic of Korea": "South Korea", "Iran (Islamic Rep of)": "Iran", "Czech Republic": "Czechia"
-        }
+        country_name_mapping = {"United States of America": "United States", "Russian Federation": "Russia", "Republic of Korea": "South Korea", "Iran (Islamic Rep of)": "Iran", "Czech Republic": "Czechia"}
         country_map_data['country_std'] = country_map_data['country'].replace(country_name_mapping)
+        
         if not country_map_data.empty:
-            fig_map = px.choropleth(
-                country_map_data, locations="country_std", locationmode="country names", color="rate",
-                hover_name="country", hover_data={"rate": ":.1f", "s_no": True, "country_std": False},
-                color_continuous_scale=px.colors.sequential.OrRd
-            )
-            fig_map.update_layout(
-                margin={"r":5,"t":5,"l":5,"b":5}, height=280,
-                geo=dict(bgcolor= 'rgba(0,0,0,0)'),
-                coloraxis_colorbar=dict(title="Rate", thickness=10, len=0.7, yanchor="middle", y=0.5, tickfont=dict(size=8))
-            )
+            fig_map = px.choropleth(country_map_data, locations="country_std", locationmode="country names", color="rate", hover_name="country", hover_data={"rate": ":.1f", "s_no": True, "country_std": False}, color_continuous_scale=px.colors.sequential.OrRd)
+            fig_map.update_layout(margin={"r":5,"t":5,"l":5,"b":5}, height=280, geo=dict(bgcolor= 'rgba(0,0,0,0)'), coloraxis_colorbar=dict(title="Rate", thickness=10, len=0.7, yanchor="middle", y=0.5, tickfont=dict(size=8)))
             st.plotly_chart(fig_map, use_container_width=True)
-        else: st.caption(f"No map data for {selected_map_year} with current filters.")
+        else: st.caption(f"No map data for {selected_map_year} with filters.")
 
     with row1_col2:
         st.markdown("<h6>🆚 Country Comparison</h6>", unsafe_allow_html=True)
-        if 'country' in df_filtered_global.columns:
-            available_countries = sorted(df_filtered_global['country'].unique())
-            if available_countries:
-                default_countries = available_countries[:min(2, len(available_countries))]
-                selected_countries_compare = st.multiselect(
-                    "Compare Countries:", available_countries, default=default_countries,
-                    key="country_compare_compact", label_visibility="collapsed"
-                )
-                st.caption(f"Comparing: {', '.join(selected_countries_compare) if selected_countries_compare else 'None'}")
-                if selected_countries_compare:
-                    country_comp_data = df_filtered_global[df_filtered_global['country'].isin(selected_countries_compare)]
-                    country_comp_agg = country_comp_data.groupby(['country', 'year']).agg(
-                        s_no=('suicides_no', 'sum'), pop=('population', 'sum')
-                    ).reset_index()
-                    country_comp_agg['rate'] = np.where(country_comp_agg['pop'] > 0, (country_comp_agg['s_no'] / country_comp_agg['pop']) * 100000, 0)
-                    if not country_comp_agg.empty:
-                        fig_cc, ax_cc = plt.subplots(figsize=(5.5, 2.7))
-                        sns.lineplot(data=country_comp_agg, x='year', y='rate', hue='country', ax=ax_cc, marker='o', markersize=3)
-                        ax_cc.set_ylabel('Rate', fontsize=8)
-                        ax_cc.set_xlabel('Year', fontsize=8)
-                        ax_cc.tick_params(axis='both', which='major', labelsize=7)
-                        ax_cc.legend(title='', fontsize='xx-small', loc='best', frameon=False)
-                        ax_cc.grid(True, linestyle=':', linewidth=0.5)
-                        plt.tight_layout(pad=0.5)
-                        st.pyplot(fig_cc)
-                    else: st.caption("No data for selected countries.")
-            else: st.caption("No countries available with current filters.") # Should not be reached if available_countries is true
+        available_countries_options = []
+        if 'country' in df_filtered_global.columns: available_countries_options = sorted(df_filtered_global['country'].unique())
+        
+        selected_countries_compare = []
+        if available_countries_options:
+            default_countries = available_countries_options[:min(2, len(available_countries_options))]
+            selected_countries_compare = st.multiselect("Compare:", available_countries_options, default=default_countries, key="country_compare_compact_v2", label_visibility="collapsed")
+            st.caption(f"Comparing: {', '.join(selected_countries_compare) if selected_countries_compare else 'None'}")
         else:
-            st.caption("No country data to compare in filtered data.")
+            st.caption("No countries in filtered data.")
+
+        if selected_countries_compare:
+            country_comp_data = df_filtered_global[df_filtered_global['country'].isin(selected_countries_compare)]
+            country_comp_agg = country_comp_data.groupby(['country', 'year']).agg(s_no=('suicides_no', 'sum'), pop=('population', 'sum')).reset_index()
+            country_comp_agg['rate'] = np.where(country_comp_agg['pop'] > 0, (country_comp_agg['s_no'] / country_comp_agg['pop']) * 100000, 0)
+            if not country_comp_agg.empty:
+                fig_cc, ax_cc = plt.subplots(figsize=(5.5, 2.7))
+                sns.lineplot(data=country_comp_agg, x='year', y='rate', hue='country', ax=ax_cc, marker='o', markersize=3)
+                ax_cc.set_ylabel('Rate', fontsize=8); ax_cc.set_xlabel('Year', fontsize=8)
+                ax_cc.tick_params(axis='both', which='major', labelsize=7)
+                ax_cc.legend(title='', fontsize='xx-small', loc='best', frameon=False); ax_cc.grid(True, linestyle=':', linewidth=0.5)
+                plt.tight_layout(pad=0.5); st.pyplot(fig_cc)
+            else: st.caption("No data for selected countries.")
+        elif available_countries_options : st.caption("Select countries to compare.")
 
 
     row2_col1, row2_col2 = st.columns(2)
-
     with row2_col1:
         st.markdown("<h6>🧑‍🤝‍🧑 Demographic Breakdown</h6>", unsafe_allow_html=True)
         dem_df = df_filtered_global.copy()
         tab_titles = ["Sex", "Age", "Sex&Age"]
         tab_sex, tab_age, tab_sex_age = st.tabs(tab_titles)
-
-        common_fig_size = (5.5, 2.5)
-        common_font_size = 7
-        legend_font_size = 'xx-small'
+        common_fig_size = (5.5, 2.5); common_font_size = 7; legend_font_size = 'xx-small'
 
         with tab_sex:
             if 'sex' in dem_df.columns:
@@ -259,7 +230,6 @@ if not df_filtered_global.empty:
                     plt.tight_layout(pad=0.5); st.pyplot(fig_s)
                 else: st.caption("No Sex data for these filters.")
             else: st.caption("Sex data unavailable.")
-
         with tab_age:
             if 'age' in dem_df.columns and not dem_df['age'].empty:
                 age_order = sorted(dem_df['age'].astype(str).dropna().unique(), key=age_sort_key)
@@ -275,7 +245,6 @@ if not df_filtered_global.empty:
                     ax_a.tick_params(labelsize=common_font_size-1); plt.tight_layout(pad=0.5); st.pyplot(fig_a)
                 else: st.caption("No Age data for these filters.")
             else: st.caption("Age data unavailable.")
-
         with tab_sex_age:
             if 'age' in dem_df.columns and not dem_df['age'].empty and 'sex' in dem_df.columns:
                 age_order_sa = sorted(dem_df['age'].astype(str).dropna().unique(), key=age_sort_key)
@@ -283,15 +252,9 @@ if not df_filtered_global.empty:
                 sa_data = dem_df.groupby(['year', 'sex', 'age_cat_sa'], observed=False).agg(s=('suicides_no', 'sum'), p=('population', 'sum')).reset_index()
                 sa_data['rate'] = np.where(sa_data['p'] > 0, (sa_data['s'] / sa_data['p']) * 100000, 0)
                 if not sa_data.empty and sa_data['rate'].notna().any():
-                    g = sns.relplot(data=sa_data, x='year', y='rate', hue='age_cat_sa', style='sex', kind='line', 
-                                    markers=True, height=2.2, aspect=1.5,
-                                    facet_kws=dict(margin_titles=True), legend=False)
-                    g.set_axis_labels("Year", "Rate", fontsize=common_font_size)
-                    g.set_titles(col_template="{col_name}", row_template="{row_name}", size=common_font_size)
-                    g.tick_params(labelsize=common_font_size-1)
-                    plt.grid(True, linestyle=':', linewidth=0.5)
-                    g.tight_layout(pad=0.5)
-                    st.pyplot(g.fig)
+                    g = sns.relplot(data=sa_data, x='year', y='rate', hue='age_cat_sa', style='sex', kind='line', markers=True, height=2.2, aspect=1.5, facet_kws=dict(margin_titles=True), legend=False)
+                    g.set_axis_labels("Year", "Rate", fontsize=common_font_size); g.set_titles(col_template="{col_name}", row_template="{row_name}", size=common_font_size)
+                    g.tick_params(labelsize=common_font_size-1); plt.grid(True, linestyle=':', linewidth=0.5); g.tight_layout(pad=0.5); st.pyplot(g.fig)
                 else: st.caption("No Sex&Age data for these filters.")
             else: st.caption("Sex&Age data unavailable.")
 
@@ -307,13 +270,9 @@ if not df_filtered_global.empty:
                 age_dist = age_dist.sort_values('age_cat')
                 fig_ad, ax_ad = plt.subplots(figsize=(5.5, 2.7))
                 sns.barplot(data=age_dist, x='age_cat', y='rate', ax=ax_ad, palette="coolwarm_r")
-                ax_ad.set_xlabel('Age Group', fontsize=common_font_size)
-                ax_ad.set_ylabel('Rate (per 100k)', fontsize=common_font_size)
-                plt.xticks(rotation=45, ha="right")
-                ax_ad.tick_params(axis='both', which='major', labelsize=common_font_size-1)
-                ax_ad.grid(True, axis='y', linestyle=':', linewidth=0.5)
-                plt.tight_layout(pad=0.5)
-                st.pyplot(fig_ad)
+                ax_ad.set_xlabel('Age Group', fontsize=common_font_size); ax_ad.set_ylabel('Rate (per 100k)', fontsize=common_font_size)
+                plt.xticks(rotation=45, ha="right"); ax_ad.tick_params(axis='both', which='major', labelsize=common_font_size-1)
+                ax_ad.grid(True, axis='y', linestyle=':', linewidth=0.5); plt.tight_layout(pad=0.5); st.pyplot(fig_ad)
             else: st.caption("No Age Dist. data for these filters.")
         else: st.caption("Age data unavailable.")
 else:
