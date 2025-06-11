@@ -11,31 +11,43 @@ import os # Import os, even if not strictly needed for the simplest path below
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    # CSV is in the SAME directory as app.py, as per your image
     file_path = "who_suicide_statistics.csv" 
     
     try:
         df_loaded = pd.read_csv(file_path)
-    except FileNotFoundError:
-        st.error(f"FATAL ERROR: Data file '{file_path}' not found. "
-                 f"Please ensure 'who_suicide_statistics.csv' is in the ROOT of your GitHub repository, "
-                 f"alongside app.py, and that the repository has been cloned/updated by Streamlit Cloud.")
-        return pd.DataFrame() # Return an empty DataFrame on critical error
+        st.write("Preview of loaded data:", df_loaded.head())  # Debug output
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return pd.DataFrame()
 
-    # Perform all initial data cleaning and transformations here
-    df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
-    df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
+    # Check for null values in critical columns
+    st.write("Missing values per column:", df_loaded.isnull().sum())  # Debug output
     
-    df_loaded['suicide_rate'] = np.where(
-        (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
-        (df_loaded['suicides_no'] / df_loaded['population']) * 100000,
-        0 
-    )
-    
-    df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df_loaded['age'] = df_loaded['age'].astype(str)
-    
-    return df_loaded
+    try:
+        # Convert numeric columns
+        df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
+        df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
+        
+        # Calculate suicide rate
+        df_loaded['suicide_rate'] = np.where(
+            (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
+            (df_loaded['suicides_no'] / df_loaded['population']) * 100000,
+            np.nan  # Use NaN instead of 0 for invalid calculations
+        )
+        
+        # Handle infinite values
+        df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
+        
+        # Convert age to string
+        df_loaded['age'] = df_loaded['age'].astype(str)
+        
+        st.write("Data loaded successfully!")  # Debug output
+        return df_loaded
+        
+    except Exception as e:
+        st.error(f"Error processing data: {str(e)}")
+        st.write("Current state of dataframe:", df_loaded.info())  # Debug output
+        return pd.DataFrame()
 
 # --- Main Application Logic ---
 df_original = load_data()
