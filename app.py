@@ -78,7 +78,6 @@ def load_data():
 # 1. Load the data
 df_original = load_data()
 
-# 2. Check if data loading was successful; if not, stop the app.
 if df_original.empty:
     st.error("Application cannot start because data loading or initial processing failed. Please check error messages above and your file paths.")
     st.stop() 
