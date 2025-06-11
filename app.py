@@ -6,8 +6,23 @@ import seaborn as sns
 import plotly.express as px
 import os # Import os, even if not strictly needed for the simplest path below
 
-# ... (Page Config and Helper Function for Age Sorting) ...
-
+def age_sort_key(age_str):
+    """Helper function to sort age groups in a logical order (5-14, 15-24, etc.)"""
+    if age_str == '5-14 years':
+        return 0
+    elif age_str == '15-24 years':
+        return 1
+    elif age_str == '25-34 years':
+        return 2
+    elif age_str == '35-54 years':
+        return 3
+    elif age_str == '55-74 years':
+        return 4
+    elif age_str == '75+ years':
+        return 5
+    else:
+        return 6  # For any unexpected age groups
+        
 # --- Load Data ---
 @st.cache_data
 def load_data():
