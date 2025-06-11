@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-# import os
 
 # --- Page Config ---
 st.set_page_config(
@@ -42,8 +41,7 @@ def load_data():
                     (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
                     (df_loaded['suicides_no'] / df_loaded['population']) * 100000, 0 
                 )
-            else: # Ensure suicide_rate column exists even if it couldn't be calculated
-                df_loaded['suicide_rate'] = 0 
+            else: df_loaded['suicide_rate'] = 0 
             
             df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
             if 'age' in df_loaded.columns: df_loaded['age'] = df_loaded['age'].astype(str)
@@ -62,59 +60,76 @@ if df_original.empty:
 # --- Sidebar Filters ---
 st.sidebar.markdown("### Filters")
 
-# Year Filter
-min_year_global, max_year_global = 0, 0 
+# Year Filter - More robust initialization
+min_year_global = None
+max_year_global = None
+can_create_year_slider = False
+
 if 'year' in df_original.columns and not df_original['year'].empty:
-    min_year_global_series = df_original['year'].min()
-    max_year_global_series = df_original['year'].max()
-    if pd.notna(min_year_global_series) and pd.notna(max_year_global_series):
-        min_year_global, max_year_global = int(min_year_global_series), int(max_year_global_series)
+    min_val_series = df_original['year'].min()
+    max_val_series = df_original['year'].max()
+    if pd.notna(min_val_series) and pd.notna(max_val_series):
+        min_year_global = int(min_val_series)
+        max_year_global = int(max_val_series)
+        if min_year_global <= max_year_global: # Ensure min is not greater than max
+            can_create_year_slider = True
+        else:
+            st.sidebar.error("Min year is greater than max year. Check data.")
     else:
-        st.sidebar.error("Year column contains NaNs. Cannot create year filter.")
-        st.stop() 
+        st.sidebar.error("Year column contains NaNs affecting min/max. Cannot create year filter.")
 else:
     st.sidebar.error("Year column missing or empty. Cannot create year filter.")
-    st.stop() 
 
-selected_year_range_global = st.sidebar.slider(
-    "Year Range:",
-    min_year_global, max_year_global,
-    (max(min_year_global, max_year_global - 5), max_year_global),
-    key="global_year_slider_sidebar"
-)
+if can_create_year_slider:
+    selected_year_range_global = st.sidebar.slider( # THIS IS WHERE LINE 81 LIKELY IS
+        "Year Range:",
+        min_year_global, # Now guaranteed to be an int or slider won't be created
+        max_year_global, # Now guaranteed to be an int
+        (max(min_year_global, max_year_global - 5), max_year_global),
+        key="global_year_slider_sidebar"
+    )
+else:
+    st.sidebar.error("Year filter cannot be displayed due to data issues.")
+    # Provide default valid values for selected_year_range_global so the rest of the script doesn't break
+    # or, more drastically, st.stop() here as well if year range is absolutely critical.
+    # For now, let's provide a placeholder; the df_filtered_global will likely be empty.
+    st.warning("Using placeholder year range due to filter error. Data display may be affected.")
+    selected_year_range_global = (1900, 2000) # Placeholder
+    # If year is absolutely critical and the app can't run without it, uncomment next line:
+    # st.stop()
+
 
 # Sex Filter
 options_sex = []
 default_sex = []
-if 'sex' in df_original.columns and df_original['sex'].notna().any(): # Check if column exists and has non-NaN values
+if 'sex' in df_original.columns and df_original['sex'].notna().any():
     options_sex = list(df_original['sex'].dropna().unique())
     default_sex = list(options_sex) 
-selected_sex_global = st.sidebar.multiselect( # This will be line 81 or very close to it
+selected_sex_global = st.sidebar.multiselect(
     "Sex:", options=options_sex, default=default_sex,
     key="global_sex_multiselect_sidebar",
-    disabled=not bool(options_sex) # More explicit boolean conversion
+    disabled=not bool(options_sex)
 )
 if not options_sex: st.sidebar.warning("Sex data unavailable for filtering.")
-
 
 # Age Filter
 options_ages = []
 default_ages = []
-if 'age' in df_original.columns and df_original['age'].notna().any(): # Check if column exists and has non-NaN values
+if 'age' in df_original.columns and df_original['age'].notna().any():
     options_ages = sorted(list(df_original['age'].astype(str).dropna().unique()), key=age_sort_key)
     default_ages = list(options_ages) 
 selected_age_global = st.sidebar.multiselect(
     "Age Groups:", options=options_ages, default=default_ages,
     key="global_age_multiselect_sidebar",
-    disabled=not bool(options_ages) # More explicit boolean conversion
+    disabled=not bool(options_ages)
 )
 if not options_ages: st.sidebar.warning("Age data unavailable for filtering.")
-
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Data: WHO via Kaggle.")
 
 # Apply global filters
+# Ensure selected_year_range_global is defined before this point
 conditions = [
     (df_original['year'] >= selected_year_range_global[0]) & \
     (df_original['year'] <= selected_year_range_global[1])
@@ -135,23 +150,20 @@ sex_summary_text = 'All'
 if options_sex: 
     if selected_sex_global and len(selected_sex_global) < len(options_sex):
         sex_summary_text = ', '.join(selected_sex_global)
-elif 'sex' not in df_original.columns:
-    sex_summary_text = 'N/A (column missing)'
-
+elif 'sex' not in df_original.columns: sex_summary_text = 'N/A (column missing)'
 age_summary_text = 'All Ages'
 if options_ages: 
     if selected_age_global and len(selected_age_global) < len(options_ages):
         age_summary_text = f"{len(selected_age_global)} groups"
-elif 'age' not in df_original.columns:
-    age_summary_text = 'N/A (column missing)'
+elif 'age' not in df_original.columns: age_summary_text = 'N/A (column missing)'
 
 st.caption(f"Displaying data for: Years {selected_year_range_global[0]}-{selected_year_range_global[1]} | Sex: {sex_summary_text} | Ages: {age_summary_text}")
 
-# --- 2x2 Grid for Visuals (Content identical to previous working version) ---
+# --- 2x2 Grid for Visuals (Keep the rest of the plotting code as it was) ---
 if not df_filtered_global.empty:
     row1_col1, row1_col2 = st.columns(2)
 
-    with row1_col1:
+    with row1_col1: # Map
         st.markdown("<h6>🗺️ Geographic Distribution</h6>", unsafe_allow_html=True)
         map_year_options = sorted(df_original['year'].unique(), reverse=True)
         default_map_year_index = 0
@@ -185,7 +197,7 @@ if not df_filtered_global.empty:
             st.plotly_chart(fig_map, use_container_width=True)
         else: st.caption(f"No map data for {selected_map_year} with filters.")
 
-    with row1_col2:
+    with row1_col2: # Country Comparison
         st.markdown("<h6>🆚 Country Comparison</h6>", unsafe_allow_html=True)
         available_countries_options = []
         if 'country' in df_filtered_global.columns: available_countries_options = sorted(df_filtered_global['country'].unique())
@@ -198,7 +210,7 @@ if not df_filtered_global.empty:
         else:
             st.caption("No countries in filtered data.")
 
-        if selected_countries_compare: # Only proceed if countries are selected
+        if selected_countries_compare: 
             country_comp_data = df_filtered_global[df_filtered_global['country'].isin(selected_countries_compare)]
             country_comp_agg = country_comp_data.groupby(['country', 'year']).agg(s_no=('suicides_no', 'sum'), pop=('population', 'sum')).reset_index()
             country_comp_agg['rate'] = np.where(country_comp_agg['pop'] > 0, (country_comp_agg['s_no'] / country_comp_agg['pop']) * 100000, 0)
@@ -214,7 +226,7 @@ if not df_filtered_global.empty:
 
 
     row2_col1, row2_col2 = st.columns(2)
-    with row2_col1:
+    with row2_col1: # Demographic Breakdown
         st.markdown("<h6>🧑‍🤝‍🧑 Demographic Breakdown</h6>", unsafe_allow_html=True)
         dem_df = df_filtered_global.copy()
         tab_titles = ["Sex", "Age", "Sex&Age"]
@@ -262,7 +274,7 @@ if not df_filtered_global.empty:
                 else: st.caption("No Sex&Age data for these filters.")
             else: st.caption("Sex&Age data unavailable.")
 
-    with row2_col2:
+    with row2_col2: # Age Group Rate (Overall)
         st.markdown("<h6>📊 Age Group Rate (Overall)</h6>", unsafe_allow_html=True)
         if 'age' in df_filtered_global.columns and not df_filtered_global['age'].empty:
             age_dist = df_filtered_global.groupby('age').agg(s_total=('suicides_no', 'sum'), p_total=('population', 'sum')).reset_index()
