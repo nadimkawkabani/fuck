@@ -22,14 +22,22 @@ def age_sort_key(age_str):
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    # Construct the path relative to the script
-    # This makes it more robust
-    script_dir = os.path.dirname(__file__) #<-- absolute dir the script is in
-    file_path = os.path.join(script_dir, "data", "who_suicide_statistics.csv")
-    # Or simply, if you know the structure:
-    # file_path = "data/who_suicide_statistics.csv" 
+    # Option 1: Simpler relative path for subdirectories
+    file_path_simple = "data/who_suicide_statistics.csv"
     
-    df = pd.read_csv(file_path)    
+    # Option 2: More robust path construction
+    # script_dir = os.path.dirname(__file__)
+    # file_path_robust = os.path.join(script_dir, "data", "who_suicide_statistics.csv")
+
+    # Try the simple path first, as it's common for Streamlit deployments
+    try:
+        df = pd.read_csv(file_path_simple)
+    except FileNotFoundError:
+        st.error(f"Error: The data file '{file_path_simple}' was not found. Please ensure it's in a 'data' subdirectory and in your GitHub repository.")
+        return pd.DataFrame() # Return empty DataFrame on error
+        # You could also try the robust path as a fallback here if needed,
+        # but usually one consistent approach is better.
+
     df['suicides_no'] = pd.to_numeric(df['suicides_no'], errors='coerce')
     df['population'] = pd.to_numeric(df['population'], errors='coerce')
     df['suicide_rate'] = np.where(
