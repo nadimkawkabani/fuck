@@ -21,7 +21,14 @@ def age_sort_key(age_str):
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    df = pd.read_csv("/content/who_suicide_statistics.csv")
+    # Construct the path relative to the script
+    # This makes it more robust
+    script_dir = os.path.dirname(__file__) #<-- absolute dir the script is in
+    file_path = os.path.join(script_dir, "data", "who_suicide_statistics.csv")
+    # Or simply, if you know the structure:
+    # file_path = "data/who_suicide_statistics.csv" 
+    
+    df = pd.read_csv(file_path)    
     df['suicides_no'] = pd.to_numeric(df['suicides_no'], errors='coerce')
     df['population'] = pd.to_numeric(df['population'], errors='coerce')
     df['suicide_rate'] = np.where(
