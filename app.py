@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-import os # Not strictly needed if only using simple relative path for root file
+# import os # Commented out as we are using the simplest path loading
 
 # --- Page Config ---
 st.set_page_config(
@@ -26,28 +26,52 @@ def load_data():
     file_path = "who_suicide_statistics.csv" 
     try:
         df_loaded = pd.read_csv(file_path)
+        st.success(f"Successfully loaded data from '{file_path}'. Shape: {df_loaded.shape}") # For debugging
     except FileNotFoundError:
-        st.error(f"FATAL ERROR: Data file '{file_path}' not found. Ensure it's in the ROOT of your GitHub repository.")
+        st.error(f"FATAL ERROR: Data file '{file_path}' not found. "
+                 f"Ensure 'who_suicide_statistics.csv' is in the ROOT of your GitHub repository, "
+                 f"alongside app.py.")
         return pd.DataFrame() 
-    df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
-    df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
-    df_loaded['suicide_rate'] = np.where(
-        (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
-        (df_loaded['suicides_no'] / df_loaded['population']) * 100000, 0 
-    )
-    df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df_loaded['age'] = df_loaded['age'].astype(str)
+    except Exception as e: # Catch any other pandas read_csv errors
+        st.error(f"Error loading data from '{file_path}': {e}")
+        return pd.DataFrame()
+
+    # Data Cleaning (only if df_loaded is not empty)
+    if not df_loaded.empty:
+        try:
+            if 'suicides_no' in df_loaded.columns:
+                df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
+            if 'population' in df_loaded.columns:
+                df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
+            
+            if 'population' in df_loaded.columns and 'suicides_no' in df_loaded.columns:
+                df_loaded['suicide_rate'] = np.where(
+                    (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
+                    (df_loaded['suicides_no'] / df_loaded['population']) * 100000, 0 
+                )
+            
+            df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
+            if 'age' in df_loaded.columns:
+                df_loaded['age'] = df_loaded['age'].astype(str)
+            else:
+                st.warning("Column 'age' not found during data loading, age-related features might not work.")
+        except Exception as e:
+            st.error(f"Error during data cleaning: {e}")
+            return pd.DataFrame() # Return empty if cleaning fails
+    
     return df_loaded
 
 # --- Main Application Logic ---
 df_original = load_data()
 
 if df_original.empty:
-    st.error("Application cannot start: data loading failed.")
+    st.error("Application cannot start because data loading or initial processing failed. Please check error messages above.")
     st.stop()
 
 # --- Sidebar Filters ---
 st.sidebar.markdown("### Filters")
+
+# Year Filter (should be safe as 'year' is fundamental)
 min_year_global, max_year_global = int(df_original['year'].min()), int(df_original['year'].max())
 selected_year_range_global = st.sidebar.slider(
     "Year Range:",
@@ -56,61 +80,71 @@ selected_year_range_global = st.sidebar.slider(
     key="global_year_slider_sidebar"
 )
 
-# Initialize unique_sex_global and unique_ages_global with defaults
+# Sex Filter (with robust checks)
 unique_sex_global = []
 selected_sex_global = []
 if 'sex' in df_original.columns:
-    unique_sex_global = df_original['sex'].unique()
+    unique_sex_global = list(df_original['sex'].unique()) # Convert to list for consistency
     selected_sex_global = st.sidebar.multiselect(
         "Sex:",
-        options=unique_sex_global, default=unique_sex_global,
+        options=unique_sex_global, default=list(unique_sex_global), # Pass list as default
         key="global_sex_multiselect_sidebar"
     )
 else:
-    st.sidebar.warning("Column 'sex' not found in data.")
+    st.sidebar.warning("Column 'sex' not found in data. Sex filter disabled.")
 
+# Age Filter (with robust checks)
 unique_ages_global = []
 selected_age_global = []
 if 'age' in df_original.columns:
-    unique_ages_global = sorted(df_original['age'].dropna().unique(), key=age_sort_key)
+    # Ensure all values are strings before sorting, and dropna
+    unique_ages_global = sorted(list(df_original['age'].astype(str).dropna().unique()), key=age_sort_key)
     selected_age_global = st.sidebar.multiselect(
         "Age Groups:",
-        options=unique_ages_global, default=unique_ages_global,
+        options=unique_ages_global, default=list(unique_ages_global), # Pass list as default
         key="global_age_multiselect_sidebar"
     )
 else:
-    st.sidebar.warning("Column 'age' not found in data.")
+    st.sidebar.warning("Column 'age' not found in data. Age filter disabled.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Data: WHO via Kaggle.")
 
 # Apply global filters
-year_condition = (df_original['year'] >= selected_year_range_global[0]) & \
-                 (df_original['year'] <= selected_year_range_global[1])
+conditions = [
+    (df_original['year'] >= selected_year_range_global[0]) & \
+    (df_original['year'] <= selected_year_range_global[1])
+]
 
-sex_condition = pd.Series(True, index=df_original.index) 
 if selected_sex_global and 'sex' in df_original.columns:
-    sex_condition = df_original['sex'].isin(selected_sex_global)
+    conditions.append(df_original['sex'].isin(selected_sex_global))
 
-age_condition = pd.Series(True, index=df_original.index)
 if selected_age_global and 'age' in df_original.columns:
-    age_condition = df_original['age'].isin(selected_age_global)
+    conditions.append(df_original['age'].isin(selected_age_global))
 
-df_filtered_global = df_original[year_condition & sex_condition & age_condition].copy()
+# Combine all conditions using logical AND
+final_condition = pd.Series(True, index=df_original.index)
+for cond in conditions:
+    final_condition = final_condition & cond
+df_filtered_global = df_original[final_condition].copy()
+
 
 # --- Main Dashboard Area ---
 st.markdown("#### 🎯 Focused Suicide Statistics Dashboard")
 
-# Dynamic filter summary - Ensure variables are defined
+# Simplified and safer filter summary
 sex_summary_text = 'All'
-if selected_sex_global and 'sex' in df_original.columns and unique_sex_global is not None and len(unique_sex_global) > 0 and len(selected_sex_global) < len(unique_sex_global):
-    sex_summary_text = ', '.join(selected_sex_global)
+if selected_sex_global and len(unique_sex_global) > 0: # Check if unique_sex_global is populated
+    if len(selected_sex_global) < len(unique_sex_global):
+        sex_summary_text = ', '.join(selected_sex_global)
 
 age_summary_text = 'All Ages'
-if selected_age_global and 'age' in df_original.columns and unique_ages_global is not None and len(unique_ages_global) > 0 and len(selected_age_global) < len(unique_ages_global):
-    age_summary_text = f"{len(selected_age_global)} groups"
+if selected_age_global and len(unique_ages_global) > 0: # Check if unique_ages_global is populated
+    if len(selected_age_global) < len(unique_ages_global):
+        age_summary_text = f"{len(selected_age_global)} groups"
 
 st.caption(f"Displaying data for: Years {selected_year_range_global[0]}-{selected_year_range_global[1]} | Sex: {sex_summary_text} | Ages: {age_summary_text}")
+
 
 # --- 2x2 Grid for Visuals ---
 if not df_filtered_global.empty:
@@ -128,9 +162,19 @@ if not df_filtered_global.empty:
             key="map_year_select_main_compact", label_visibility="collapsed"
         )
         st.caption(f"Map showing year: {selected_map_year}")
+        
+        # Prepare data for map: Use df_original for the selected map_year, 
+        # but still respect the global sex/age filters.
+        map_sex_condition = pd.Series(True, index=df_original.index)
+        if selected_sex_global and 'sex' in df_original.columns:
+             map_sex_condition = df_original['sex'].isin(selected_sex_global)
+        
+        map_age_condition = pd.Series(True, index=df_original.index)
+        if selected_age_global and 'age' in df_original.columns:
+             map_age_condition = df_original['age'].isin(selected_age_global)
 
         map_data_source = df_original[
-            (df_original['year'] == selected_map_year) & sex_condition & age_condition # Apply global sex/age conditions
+            (df_original['year'] == selected_map_year) & map_sex_condition & map_age_condition
         ].copy()
 
         country_map_data = map_data_source.groupby('country').agg(
@@ -185,9 +229,9 @@ if not df_filtered_global.empty:
                         plt.tight_layout(pad=0.5)
                         st.pyplot(fig_cc)
                     else: st.caption("No data for selected countries.")
-            else: st.caption("No countries available with current filters.")
+            else: st.caption("No countries available with current filters.") # Should not be reached if available_countries is true
         else:
-            st.caption("No country data to compare.")
+            st.caption("No country data to compare in filtered data.")
 
 
     row2_col1, row2_col2 = st.columns(2)
@@ -218,7 +262,7 @@ if not df_filtered_global.empty:
 
         with tab_age:
             if 'age' in dem_df.columns and not dem_df['age'].empty:
-                age_order = sorted(dem_df['age'].dropna().unique(), key=age_sort_key)
+                age_order = sorted(dem_df['age'].astype(str).dropna().unique(), key=age_sort_key)
                 dem_df['age_cat'] = pd.Categorical(dem_df['age'], categories=age_order, ordered=True)
                 age_data = dem_df.groupby(['year', 'age_cat'], observed=False).agg(s=('suicides_no', 'sum'), p=('population', 'sum')).reset_index()
                 age_data['rate'] = np.where(age_data['p'] > 0, (age_data['s'] / age_data['p']) * 100000, 0)
@@ -234,7 +278,7 @@ if not df_filtered_global.empty:
 
         with tab_sex_age:
             if 'age' in dem_df.columns and not dem_df['age'].empty and 'sex' in dem_df.columns:
-                age_order_sa = sorted(dem_df['age'].dropna().unique(), key=age_sort_key)
+                age_order_sa = sorted(dem_df['age'].astype(str).dropna().unique(), key=age_sort_key)
                 dem_df['age_cat_sa'] = pd.Categorical(dem_df['age'], categories=age_order_sa, ordered=True)
                 sa_data = dem_df.groupby(['year', 'sex', 'age_cat_sa'], observed=False).agg(s=('suicides_no', 'sum'), p=('population', 'sum')).reset_index()
                 sa_data['rate'] = np.where(sa_data['p'] > 0, (sa_data['s'] / sa_data['p']) * 100000, 0)
@@ -258,7 +302,7 @@ if not df_filtered_global.empty:
             age_dist['rate'] = np.where(age_dist['p_total'] > 0, (age_dist['s_total'] / age_dist['p_total']) * 100000, 0)
             age_dist.dropna(subset=['rate'], inplace=True)
             if not age_dist.empty:
-                age_order_bar = sorted(age_dist['age'].dropna().unique(), key=age_sort_key)
+                age_order_bar = sorted(age_dist['age'].astype(str).dropna().unique(), key=age_sort_key)
                 age_dist['age_cat'] = pd.Categorical(age_dist['age'], categories=age_order_bar, ordered=True)
                 age_dist = age_dist.sort_values('age_cat')
                 fig_ad, ax_ad = plt.subplots(figsize=(5.5, 2.7))
