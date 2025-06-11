@@ -1,29 +1,17 @@
-import streamlit as st
+import streamlit as st # Make sure all imports are at the TOP
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-import os # Still good to have, though not strictly needed for the simplest path
+import os # Import os, even if not strictly needed for the simplest path below
 
-# --- Page Config ---
-st.set_page_config(
-    page_title="Focused Suicide Stats Dashboard",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- Helper Function for Age Sorting ---
-def age_sort_key(age_str):
-    if pd.isna(age_str):
-        return -1
-    age_str = str(age_str)
-    return int(age_str.replace(' years', '').split('-')[0].replace('+', ''))
+# ... (Page Config and Helper Function for Age Sorting) ...
 
 # --- Load Data ---
 @st.cache_data
 def load_data():
-    # CORRECTED FILE PATH: CSV is in the SAME directory as app.py
+    # CSV is in the SAME directory as app.py, as per your image
     file_path = "who_suicide_statistics.csv" 
     
     try:
@@ -31,16 +19,19 @@ def load_data():
     except FileNotFoundError:
         st.error(f"FATAL ERROR: Data file '{file_path}' not found. "
                  f"Please ensure 'who_suicide_statistics.csv' is in the ROOT of your GitHub repository, "
-                 f"alongside app.py, and that the repository has been cloned by Streamlit Cloud.")
-        return pd.DataFrame() 
+                 f"alongside app.py, and that the repository has been cloned/updated by Streamlit Cloud.")
+        return pd.DataFrame() # Return an empty DataFrame on critical error
 
+    # Perform all initial data cleaning and transformations here
     df_loaded['suicides_no'] = pd.to_numeric(df_loaded['suicides_no'], errors='coerce')
     df_loaded['population'] = pd.to_numeric(df_loaded['population'], errors='coerce')
+    
     df_loaded['suicide_rate'] = np.where(
         (df_loaded['population'] > 0) & (df_loaded['suicides_no'].notna()),
         (df_loaded['suicides_no'] / df_loaded['population']) * 100000,
         0 
     )
+    
     df_loaded.replace([np.inf, -np.inf], np.nan, inplace=True)
     df_loaded['age'] = df_loaded['age'].astype(str)
     
