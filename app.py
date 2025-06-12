@@ -41,14 +41,13 @@ def load_data():
     url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis_Cleaned.csv"
     
     try:
-        # Step 1: Read the CSV
         df = pd.read_csv(url)
 
         if df.empty:
             st.error("The loaded CSV file from the URL is empty.")
             return None
 
-        # Step 2: Standardize column names
+        # --- Start of Data Cleaning Block ---
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
@@ -62,33 +61,29 @@ def load_data():
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
 
-        # Step 3: Handle text-based columns robustly
-        # Only apply string operations if the column is of 'object' type
-        text_mappings = {
-            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1, 'yok': 0},
-            'Comorbidity': {'var': 1, 'yok': 0},
-            'Gender': {'female': 0, 'male': 1, 'f': 0, 'm': 1, 'kadın': 0, 'erkek': 1},
-            'Mortality': {'mortal': 1, 'mortal değil': 0}
+        # UPDATED LOGIC: Since Gender is already 1 and 2, we don't map it from text.
+        # We only map the other text-based columns.
+        binary_mappings = {
+            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'Var': 1, 'Yok': 0},
+            'Comorbidity': {'Var': 1, 'Yok': 0},
+            'Mortality': {'Mortal': 1, 'Mortal Değil': 0, 1: 1, 0: 0}
         }
 
-        for col, mapping in text_mappings.items():
+        for col, mapping in binary_mappings.items():
             if col in df.columns and pd.api.types.is_object_dtype(df[col]):
-                df[col] = df[col].str.lower().map(mapping).fillna(df[col])
-        
-        # Step 4: Ensure all key categorical/binary columns are integer type
-        # This handles cases where they might have been read as floats or objects
+                df[col] = df[col].str.lower().map(mapping)
+
+        # Ensure all key categorical/binary columns are integer type
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-        # Step 5: Convert feature columns to numeric
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # Step 6: Create Age Groups
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
@@ -131,10 +126,12 @@ def display_eda_dashboard(df):
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     if 'Gender' in df.columns:
-        gender_map = {0: 'Female', 1: 'Male'}
+        # CORRECTED MAPPING: Use 1 for Male and 2 for Female
+        gender_map = {1: 'Male', 2: 'Female'}
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
-            gender_code = 1 if selected_gender_str == 'Male' else 0
+            # CORRECTED LOGIC
+            gender_code = 1 if selected_gender_str == 'Male' else 2
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
 
     if 'Mortality' in df.columns:
@@ -161,8 +158,9 @@ def display_eda_dashboard(df):
                 plot_interactive_distribution(filtered_df, 'Age', 'Mortality')
         with col2:
             st.subheader("Gender Distribution")
-            if 'Gender' in filtered_df.columns and 'Mortality' in filtered_df.columns:
-                gender_map = {0: 'Female', 1: 'Male'}
+            if 'Gender' in filtered_df.columns:
+                # This now uses the corrected gender_map {1: 'Male', 2: 'Female'}
+                gender_map = {1: 'Male', 2: 'Female'}
                 gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
                 fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
                 st.plotly_chart(fig, use_container_width=True)
@@ -321,7 +319,9 @@ def display_prediction_dashboard(df):
                     if feature == 'Age':
                         input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
-                        input_data[feature] = 1 if st.selectbox("Gender", ['Male', 'Female']) == 'Male' else 0
+                        # CORRECTED LOGIC: Use 1 for Male and 2 for Female
+                        selected_gender = st.selectbox("Gender", ['Male', 'Female'])
+                        input_data[feature] = 1 if selected_gender == 'Male' else 2
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
                         input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                     else:
