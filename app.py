@@ -41,13 +41,14 @@ def load_data():
     url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis_Cleaned.csv"
     
     try:
+        # Step 1: Read the CSV
         df = pd.read_csv(url)
 
         if df.empty:
             st.error("The loaded CSV file from the URL is empty.")
             return None
 
-        # --- Start of Data Cleaning Block ---
+        # Step 2: Standardize column names
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
@@ -61,48 +62,42 @@ def load_data():
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
 
-        # Make the Gender column lowercase to handle case-insensitivity before mapping.
-        if 'Gender' in df.columns:
-            df['Gender'] = df['Gender'].str.lower()
-
-        # Now the map will work for 'female', 'Female', 'FEMALE', etc.
-        binary_mappings = {
+        # Step 3: Handle text-based columns robustly
+        # Only apply string operations if the column is of 'object' type
+        text_mappings = {
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1, 'yok': 0},
             'Comorbidity': {'var': 1, 'yok': 0},
             'Gender': {'female': 0, 'male': 1, 'f': 0, 'm': 1, 'kadın': 0, 'erkek': 1},
-            'Mortality': {'mortal': 1, 'mortal değil': 0, 1: 1, 0: 0}
+            'Mortality': {'mortal': 1, 'mortal değil': 0}
         }
 
-        for col, mapping in binary_mappings.items():
-            if col in df.columns:
-                # Make other text columns lowercase as well for robustness
-                if df[col].dtype == 'object':
-                    # Check if it's not already numeric-like before applying .str
-                    if pd.api.types.is_string_dtype(df[col]):
-                        df[col] = df[col].str.lower()
-                
-                df[col] = df[col].map(mapping).fillna(df[col])
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+        for col, mapping in text_mappings.items():
+            if col in df.columns and pd.api.types.is_object_dtype(df[col]):
+                df[col] = df[col].str.lower().map(mapping).fillna(df[col])
+        
+        # Step 4: Ensure all key categorical/binary columns are integer type
+        # This handles cases where they might have been read as floats or objects
+        for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
+             if col in df.columns:
+                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
+        # Step 5: Convert feature columns to numeric
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
+        # Step 6: Create Age Groups
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
 
-        for col in df.columns:
-            if df[col].dtype == 'object' and df[col].nunique() < 10:
-                df[col] = df[col].astype('category')
-
         return df
 
     except Exception as e:
-        st.error(f"Failed to load or process data from URL. Please check the URL and file format. Error: {str(e)}")
+        st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
 
 # Load the data once when the app starts
