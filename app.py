@@ -50,7 +50,7 @@ def load_data(file_path_or_buffer):
             st.error("The uploaded CSV file is empty.")
             return None
             
-        # --- Data Cleaning (as provided in your script) ---
+        # --- Data Cleaning ---
         # Standardize column names
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         
@@ -77,7 +77,6 @@ def load_data(file_path_or_buffer):
         
         for col, mapping in binary_mappings.items():
             if col in df.columns:
-                # Use .map() for safer replacement and handle potential new values
                 df[col] = df[col].map(mapping).fillna(df[col]) 
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
@@ -138,19 +137,15 @@ def display_eda_dashboard(df):
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     
-   # --- In display_eda_dashboard function ---
-
-# Age filter
-# Add a check to ensure the column is a categorical type
-if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
-    # THIS IS THE FIX: Use the .cat.categories attribute
-    age_options = list(df['Age_Group'].cat.categories)
-    selected_age = st.sidebar.multiselect(
-        "Filter by Age Group", 
-        options=age_options, 
-        default=age_options  # This is already sorted
-    )
-    filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
+    # Age filter
+    if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
+        age_options = list(df['Age_Group'].cat.categories)
+        selected_age = st.sidebar.multiselect(
+            "Filter by Age Group", 
+            options=age_options, 
+            default=age_options
+        )
+        filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     # Gender filter
     if 'Gender' in df.columns:
@@ -186,9 +181,6 @@ if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group
     lab_cols = [col for col in ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 
                               'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 
                               'Creatinine'] if col in df.columns]
-    risk_score_cols = [col for col in ['The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 
-                                     'Systemic_Inflammatory_Response_Syndrome_SIRS_presence'] 
-                      if col in df.columns]
     comorbidity_cols = [col for col in ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 
                                       'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 
                                       'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 
@@ -198,7 +190,6 @@ if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
 
     with tab1:
-        # ... (Your EDA Tab 1 code remains the same)
         st.header("Demographic Analysis")
         col1, col2 = st.columns(2)
         with col1:
@@ -222,7 +213,6 @@ if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group
             st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        # ... (Your EDA Tab 2 code remains the same)
         st.header("Vitals & Lab Results Analysis")
         with st.expander("📈 Vital Signs Analysis", expanded=True):
             if not vital_cols or 'Mortality' not in filtered_df.columns: 
@@ -248,9 +238,7 @@ if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group
                                    trendline='lowess', title=f'{selected_lab} vs. {x_axis}')
                     st.plotly_chart(fig, use_container_width=True)
 
-
     with tab3:
-        # ... (Your EDA Tab 3 code remains the same)
         st.header("Risk Factors & Comorbidities Analysis")
         if not comorbidity_cols or 'Mortality' not in filtered_df.columns: 
             st.warning("Comorbidity or Mortality columns not found.")
@@ -279,7 +267,6 @@ if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group
                 st.plotly_chart(fig, use_container_width=True)
 
     with tab4:
-        # ... (Your EDA Tab 4 code remains the same)
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns 
                            if pd.api.types.is_numeric_dtype(filtered_df[col])]
@@ -302,7 +289,6 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
             n_jobs=-1
         )
     elif model_type == 'Logistic Regression':
-        # Pipeline is crucial for scaling before regression
         model = make_pipeline(
             StandardScaler(),
             LogisticRegression(
@@ -311,7 +297,7 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
                 class_weight='balanced',
                 random_state=42,
                 max_iter=1000,
-                solver='liblinear' # Good solver for L1/L2
+                solver='liblinear'
             )
         )
     elif model_type == 'XGBoost':
@@ -356,7 +342,6 @@ def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Advanced machine learning for sepsis mortality prediction with multiple algorithms.")
     
-    # Define features and target
     features = [
         'Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 
         'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 
@@ -366,13 +351,11 @@ def display_prediction_dashboard(df):
     ]
     target = 'Mortality'
     
-    # Check for required columns
     available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns: 
         st.error("❌ Essential columns for prediction are missing from the data.")
         return
     
-    # Prepare data
     df_model = df[available_features + [target]].dropna()
     if df_model.empty: 
         st.error("❌ No data available for model training after handling missing values.")
@@ -432,7 +415,6 @@ def display_prediction_dashboard(df):
                 }
                 st.success(f"✅ {model_type} model trained successfully!")
 
-    # Check if model exists in session state before proceeding
     if st.session_state.model_details["model"] is None:
         st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
         return
@@ -465,14 +447,12 @@ def display_prediction_dashboard(df):
     with tab3:
         st.header(f"Model Interpretability: {model_type}")
         
-        # --- Feature Importance ---
         st.subheader("Feature Importance")
         importance_df = None
         if model_type in ["Random Forest", "XGBoost"]:
             importances = model.feature_importances_
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': importances})
         elif model_type == "Logistic Regression":
-            # For pipeline, get coefficients from the regression step
             importances = model.named_steps['logisticregression'].coef_[0]
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(importances)})
         
@@ -483,7 +463,6 @@ def display_prediction_dashboard(df):
         else:
             st.info("Feature importance is not directly available for this model type.")
             
-        # --- Partial Dependence Plots ---
         st.subheader("Partial Dependence Plots (PDP)")
         st.markdown("Shows the marginal effect of a feature on the predicted outcome.")
         pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
@@ -503,7 +482,6 @@ def display_prediction_dashboard(df):
             input_data = {}
             col1, col2, col3 = st.columns(3)
             
-            # Dynamically create input fields based on model features
             model_features = st.session_state.model_details["features"]
             for i, feature in enumerate(model_features):
                 current_col = [col1, col2, col3][i % 3]
@@ -514,14 +492,14 @@ def display_prediction_dashboard(df):
                         input_data[feature] = 1 if st.selectbox("Gender", ['Female', 'Male']) == 'Male' else 0
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
                         input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
-                    else: # Numeric features
+                    else:
                         min_val, max_val, mean_val = float(X[feature].min()), float(X[feature].max()), float(X[feature].mean())
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             
             submitted = st.form_submit_button("Calculate Mortality Risk")
         
         if submitted:
-            input_df = pd.DataFrame([input_data])[model_features] # Ensure column order
+            input_df = pd.DataFrame([input_data])[model_features]
             prediction_proba = model.predict_proba(input_df)[0][1]
             risk_percent = prediction_proba * 100
             
@@ -529,7 +507,6 @@ def display_prediction_dashboard(df):
             col1, col2 = st.columns(2)
             with col1:
                 st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
-                # Risk gauge
                 fig = go.Figure(go.Indicator(
                     mode = "gauge+number",
                     value = risk_percent,
@@ -558,24 +535,28 @@ def display_prediction_dashboard(df):
 def main():
     st.sidebar.title("🩺 Sepsis Analytics Suite")
     st.sidebar.markdown("---")
-    
+
+    # --- Data Loading Section ---
+    sepsis_df = None
+
+    # Option 1: User uploads a file (this takes priority)
     uploaded_file = st.sidebar.file_uploader(
-        "Upload your sepsis data (CSV)", 
+        "Upload your own sepsis data (CSV)",
         type=['csv'],
         key='data_uploader'
     )
-    
-    sepsis_df = None
     if uploaded_file is not None:
         sepsis_df = load_data(uploaded_file)
+    
+    # Option 2: Load from GitHub by default if no file is uploaded
     else:
-        # Provide instructions instead of failing silently
-        st.sidebar.info("Upload a CSV file to begin analysis.")
-        # Optional: try to load a default file if it exists
-        default_file = 'ICL_Sepsis_Cleaned.csv'
-        if os.path.exists(default_file):
-            if st.sidebar.button('Load Default Demo Data'):
-                sepsis_df = load_data(default_file)
+        # !!! IMPORTANT: PASTE YOUR RAW GITHUB URL HERE !!!
+        default_url = "https://raw.githubusercontent.com/your-username/your-repo-name/main/ICL_Sepsis_Cleaned.csv"
+        
+        st.sidebar.markdown("---")
+        if st.sidebar.button('Load Demo Data from GitHub'):
+            with st.spinner('Loading demo data...'):
+                sepsis_df = load_data(default_url)
 
     # --- Main content rendering ---
     if sepsis_df is not None:
@@ -596,7 +577,7 @@ def main():
         # This is the landing page content when no data is loaded
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.markdown("This tool provides in-depth exploratory data analysis and predictive modeling for sepsis mortality risk.")
-        st.info("To get started, please **upload a CSV file** using the sidebar on the left.", icon="👈")
+        st.info("To get started, please **upload a CSV file** or click the **'Load Demo Data from GitHub'** button in the sidebar.", icon="👈")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 
