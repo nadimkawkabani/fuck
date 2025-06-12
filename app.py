@@ -13,7 +13,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 # --- Data Loading and Caching ---
 @st.cache_data
 def load_data(file_path):
