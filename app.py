@@ -28,6 +28,7 @@ def load_data(file_path):
         return None
 
     # --- Data Cleaning ---
+    # Standardize column names for robustness
     df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
     
     rename_map = {
@@ -95,12 +96,13 @@ def display_eda_dashboard(df):
                 fig, ax = plt.subplots(); sns.histplot(filtered_df['Age'].dropna(), kde=True, ax=ax, bins=20); ax.set_title("Distribution of Patient Ages"); st.pyplot(fig)
         with col2:
             st.subheader("Gender Distribution")
-            if 'Gender' in filtered_df.columns:
-                gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
+            if 'Gender' in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                gender_counts = filtered_df.dropna(subset=['Gender'])['Gender'].map(gender_map).value_counts()
                 fig, ax = plt.subplots(); gender_counts.plot(kind='pie', autopct='%1.1f%%', ax=ax, colors=['skyblue', 'lightcoral']); ax.set_ylabel(''); st.pyplot(fig)
 
     with tab2:
         st.header("Vitals & Lab Results Analysis")
+        st.markdown("Comparing measurements between survivors and non-survivors.")
         with st.expander("Vital Signs Analysis", expanded=True):
             if not vital_cols or 'Mortality' not in filtered_df.columns: st.warning("Vital sign or Mortality columns not found.")
             else:
@@ -108,6 +110,12 @@ def display_eda_dashboard(df):
                 for i, vital in enumerate(vital_cols):
                     with cols[i % len(cols)]:
                         fig, ax = plt.subplots(); sns.boxplot(data=filtered_df, x='Mortality', y=vital, ax=ax, palette='viridis'); ax.set_xticklabels(['Survived', 'Died']); ax.set_title(vital); st.pyplot(fig)
+        
+        with st.expander("Lab Results Analysis"):
+            if not lab_cols: st.warning("No lab columns found.")
+            else:
+                lab_to_plot = st.selectbox("Select Lab Value", options=lab_cols)
+                fig, ax = plt.subplots(); sns.kdeplot(data=filtered_df, x=lab_to_plot, hue='Mortality', fill=True, common_norm=False, palette='coolwarm'); ax.set_title(f"Distribution of {lab_to_plot}"); st.pyplot(fig)
 
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
