@@ -18,14 +18,16 @@ st.set_page_config(
 # --- Data Loading and Caching ---
 @st.cache_data
 def load_data(file_path):
+    """
+    Loads and preprocesses the sepsis data from a CSV file.
+    """
     try:
         df = pd.read_csv(file_path)
     except FileNotFoundError:
         st.error(f"Error: The file '{file_path}' was not found. Please make sure it's in the correct directory.")
         return None
-    
+
     # --- Data Cleaning ---
-    # Standardize column names for robustness
     df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
     
     rename_map = {
@@ -34,7 +36,7 @@ def load_data(file_path):
         'Mortalite': 'Mortality',
         'KOAH_Asthım': 'COPD_Asthma'
     }
-    df.rename(columns=rename_map, inplace=True)
+    df.rename(columns=rename_map, inplace=True, errors='ignore')
     
     # Convert binary/categorical columns
     if 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence' in df.columns and df['Systemic_Inflammatory_Response_Syndrome_SIRS_presence'].dtype == 'object':
@@ -65,9 +67,10 @@ def display_eda_dashboard(df):
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     if 'Gender' in df.columns:
-        selected_gender = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0, key="eda_gender_filter")
-        if selected_gender != 'All':
-            gender_code = 1 if selected_gender == 'Male' else 0
+        gender_map = {0: 'Female', 1: 'Male'}
+        selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0, key="eda_gender_filter")
+        if selected_gender_str != 'All':
+            gender_code = 1 if selected_gender_str == 'Male' else 0
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
     
     if filtered_df.empty:
@@ -93,14 +96,13 @@ def display_eda_dashboard(df):
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns:
-                gender_counts = filtered_df['Gender'].map({0: 'Female', 1: 'Male'}).value_counts()
+                gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
                 fig, ax = plt.subplots(); gender_counts.plot(kind='pie', autopct='%1.1f%%', ax=ax, colors=['skyblue', 'lightcoral']); ax.set_ylabel(''); st.pyplot(fig)
 
     with tab2:
         st.header("Vitals & Lab Results Analysis")
-        st.markdown("Comparing measurements between survivors and non-survivors.")
         with st.expander("Vital Signs Analysis", expanded=True):
-            if not vital_cols: st.warning("No vital sign columns found.")
+            if not vital_cols or 'Mortality' not in filtered_df.columns: st.warning("Vital sign or Mortality columns not found.")
             else:
                 cols = st.columns(min(len(vital_cols), 3))
                 for i, vital in enumerate(vital_cols):
@@ -109,14 +111,13 @@ def display_eda_dashboard(df):
 
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
-        if not comorbidity_cols: st.warning("No comorbidity columns found.")
+        if not comorbidity_cols or 'Mortality' not in filtered_df.columns: st.warning("Comorbidity or Mortality columns not found.")
         else:
             mortality_rates = {}
             for col in comorbidity_cols:
-                if filtered_df[col].sum() > 0: # Ensure there are patients with the comorbidity
+                if filtered_df[col].sum() > 0:
                     rate = filtered_df[filtered_df[col] == 1]['Mortality'].mean()
-                    if pd.notna(rate):
-                        mortality_rates[col] = rate * 100
+                    if pd.notna(rate): mortality_rates[col] = rate * 100
             
             if mortality_rates:
                 mortality_df = pd.DataFrame(list(mortality_rates.items()), columns=['Comorbidity', 'Mortality Rate (%)']).sort_values('Mortality Rate (%)', ascending=False)
