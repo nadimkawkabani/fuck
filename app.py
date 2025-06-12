@@ -138,15 +138,19 @@ def display_eda_dashboard(df):
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     
-    # Age filter
-    if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
-        age_options = sorted(list(df['Age_Group'].cat.categories))
-        selected_age = st.sidebar.multiselect(
-            "Filter by Age Group", 
-            options=age_options, 
-            default=age_options
-        )
-        filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
+   # --- In display_eda_dashboard function ---
+
+# Age filter
+# Add a check to ensure the column is a categorical type
+if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
+    # THIS IS THE FIX: Use the .cat.categories attribute
+    age_options = list(df['Age_Group'].cat.categories)
+    selected_age = st.sidebar.multiselect(
+        "Filter by Age Group", 
+        options=age_options, 
+        default=age_options  # This is already sorted
+    )
+    filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     # Gender filter
     if 'Gender' in df.columns:
