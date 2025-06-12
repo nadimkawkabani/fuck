@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import plotly.express as px  # <--- THIS IS THE NEW LINE
+import plotly.express as px
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
@@ -53,26 +53,105 @@ def load_data(file_path):
 
     return df
 
-# --- EDA Dashboard (remains the same) ---
+# --- COMPREHENSIVE EDA DASHBOARD (RESTORED) ---
 def display_eda_dashboard(df):
-    # This function is unchanged from the previous version.
-    # It contains the comprehensive EDA with tabs for Demographics, Vitals, etc.
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset, exploring all key factors.")
 
-    # ... (code for the comprehensive EDA dashboard is here) ...
-    # To keep this response clean, I'm omitting the full code for this function as it's not the part being changed.
-    # Just imagine the previous 'comprehensive EDA' function is here. 
-    # If you need it again, please let me know.
-    st.info("The full EDA dashboard would be displayed here.")
+    st.sidebar.header("EDA Filters")
+    if 'Age_Group' not in df.columns:
+        st.warning("Age_Group column not found. Age-based filtering is disabled.")
+        filtered_df = df.copy()
+    else:
+        age_options = sorted(list(df['Age_Group'].dropna().unique()))
+        selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
+        filtered_df = df[df['Age_Group'].isin(selected_age)]
 
+    selected_gender = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
 
-# --- NEW: Predictive Analysis Dashboard with Tabs ---
+    if selected_gender != 'All':
+        gender_code = 1 if selected_gender == 'Male' else 0
+        filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
+    
+    if filtered_df.empty:
+        st.warning("No data available for the selected filters.")
+        return
+
+    demographic_cols = ['Age_Group', 'Gender']
+    vital_cols = ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation']
+    lab_cols = ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine']
+    risk_score_cols = ['The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']
+    comorbidity_cols = ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Others']
+    
+    available_vitals = [col for col in vital_cols if col in df.columns]
+    available_labs = [col for col in lab_cols if col in df.columns]
+    available_risks = [col for col in risk_score_cols if col in df.columns]
+    available_comorbidities = [col for col in comorbidity_cols if col in df.columns]
+
+    tab1, tab2, tab3 = st.tabs(["📊 Demographics", "🩸 Vitals & Lab Results", "⚠️ Risk Factors & Comorbidities"])
+
+    with tab1:
+        st.header("Demographic Analysis")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Patient Age Distribution")
+            if 'Age' in filtered_df.columns:
+                fig, ax = plt.subplots()
+                sns.histplot(filtered_df['Age'], kde=True, ax=ax, bins=20)
+                ax.set_title("Distribution of Patient Ages")
+                st.pyplot(fig)
+        with col2:
+            st.subheader("Gender Distribution")
+            if 'Gender' in filtered_df.columns:
+                gender_counts = filtered_df['Gender'].map({0: 'Female', 1: 'Male'}).value_counts()
+                fig, ax = plt.subplots()
+                gender_counts.plot(kind='pie', autopct='%1.1f%%', ax=ax, colors=['skyblue', 'lightcoral'])
+                ax.set_ylabel('')
+                st.pyplot(fig)
+
+    with tab2:
+        st.header("Vitals & Lab Results Analysis")
+        with st.expander("Vital Signs Analysis", expanded=True):
+            if not available_vitals: st.warning("No vital sign columns found.")
+            else:
+                cols = st.columns(3)
+                for i, vital in enumerate(available_vitals):
+                    with cols[i % 3]:
+                        fig, ax = plt.subplots(figsize=(6, 5)); sns.boxplot(data=filtered_df, x='Mortality', y=vital, ax=ax, palette='viridis'); ax.set_xticklabels(['Survived', 'Died']); ax.set_title(vital.replace('_', ' ').title()); st.pyplot(fig)
+        with st.expander("Lab Results Analysis"):
+            if not available_labs: st.warning("No lab result columns found.")
+            else:
+                lab_to_plot = st.selectbox("Select a Lab Value to Visualize", options=available_labs)
+                fig, ax = plt.subplots(); sns.kdeplot(data=filtered_df, x=lab_to_plot, hue='Mortality', fill=True, palette='coolwarm', common_norm=False); ax.set_title(f"Distribution of {lab_to_plot}"); st.pyplot(fig)
+
+    with tab3:
+        st.header("Risk Factors & Comorbidities Analysis")
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.subheader("Risk Score Distributions")
+            if not available_risks: st.warning("No risk score columns found.")
+            else:
+                for score in available_risks:
+                    if score in filtered_df.columns:
+                        fig, ax = plt.subplots(); sns.boxplot(data=filtered_df, x='Mortality', y=score, ax=ax, palette='mako'); ax.set_xticklabels(['Survived', 'Died']); ax.set_title(f"Impact of {score.replace('_', ' ')}"); st.pyplot(fig)
+        with col2:
+            st.subheader("Impact of Specific Comorbidities")
+            if not available_comorbidities: st.warning("No comorbidity columns found.")
+            else:
+                comorbidity_data = []
+                for comorbidity in available_comorbidities:
+                    if comorbidity in filtered_df.columns:
+                        rate = filtered_df[filtered_df[comorbidity] == 1]['Mortality'].mean() * 100
+                        if not pd.isna(rate): comorbidity_data.append({'Comorbidity': comorbidity, 'Mortality Rate (%)': rate})
+                if comorbidity_data:
+                    mortality_df = pd.DataFrame(comorbidity_data).sort_values('Mortality Rate (%)', ascending=False)
+                    fig, ax = plt.subplots(figsize=(8, 6)); sns.barplot(data=mortality_df, y='Comorbidity', x='Mortality Rate (%)', ax=ax, palette='rocket'); ax.set_title("Mortality Rate for Patients with Specific Comorbidities"); st.pyplot(fig)
+
+# --- PREDICTIVE ANALYSIS DASHBOARD ---
 def display_prediction_dashboard(df):
     st.title("🤖 Mortality Prediction & Risk Analysis")
     st.markdown("Using machine learning to predict patient mortality and identify key risk factors.")
 
-    # --- Feature Selection and Data Prep ---
     features = [
         'Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus',
         'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate',
@@ -82,164 +161,63 @@ def display_prediction_dashboard(df):
     target = 'Mortality'
 
     available_features = [f for f in features if f in df.columns]
-    if not available_features or target not in df.columns:
-        st.error("The dataset is missing essential columns for prediction.")
-        return
+    if not available_features or target not in df.columns: st.error("Essential columns for prediction are missing."); return
     
     df_model = df[available_features + [target]].dropna()
-    if df_model.empty:
-        st.error("No data available for model training after removing rows with missing values.")
-        return
+    if df_model.empty: st.error("No data for model training after handling missing values."); return
         
     X = df_model[available_features]
     y = df_model[target]
 
-    # --- Model Training ---
-    # We train the model once and reuse it across tabs.
     @st.cache_resource
     def train_model(X_train, y_train):
-        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
-        model.fit(X_train, y_train)
-        return model
+        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced'); model.fit(X_train, y_train); return model
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     model = train_model(X_train, y_train)
 
-    # --- Predictive Dashboard Tabs ---
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 Model Performance", 
-        "🔑 Key Risk Factors", 
-        "🎯 Patient Risk Stratification", 
-        "🧮 Live Prediction Calculator"
-    ])
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 Model Performance", "🔑 Key Risk Factors", "🎯 Patient Risk Stratification", "🧮 Live Prediction Calculator"])
 
     with tab1:
-        st.header("Model Performance Evaluation")
-        y_pred = model.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        
+        st.header("Model Performance Evaluation"); y_pred = model.predict(X_test); accuracy = accuracy_score(y_test, y_pred)
         col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Model Accuracy on Test Data", f"{accuracy:.2%}")
-            st.info("Accuracy measures the overall correctness of the model's predictions.")
-        
+        with col1: st.metric("Model Accuracy on Test Data", f"{accuracy:.2%}")
         with col2:
-            st.subheader("Confusion Matrix")
-            cm = confusion_matrix(y_test, y_pred)
-            fig, ax = plt.subplots()
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, 
-                        xticklabels=['Predicted Survived', 'Predicted Died'], 
-                        yticklabels=['Actual Survived', 'Actual Died'])
-            plt.ylabel('Actual Outcome')
-            plt.xlabel('Predicted Outcome')
-            st.pyplot(fig)
+            st.subheader("Confusion Matrix"); cm = confusion_matrix(y_test, y_pred); fig, ax = plt.subplots(); sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, xticklabels=['Predicted Survived', 'Predicted Died'], yticklabels=['Actual Survived', 'Actual Died']); plt.ylabel('Actual Outcome'); plt.xlabel('Predicted Outcome'); st.pyplot(fig)
 
     with tab2:
-        st.header("Top Clinical Predictors of Mortality")
-        st.markdown("These are the most important factors the model used to distinguish between high-risk and low-risk patients.")
-        
-        importances = pd.DataFrame({
-            'feature': X.columns,
-            'importance': model.feature_importances_
-        }).sort_values('importance', ascending=False)
-
-        fig, ax = plt.subplots(figsize=(10, 8))
-        sns.barplot(x='importance', y='feature', data=importances.head(15), palette='mako', ax=ax)
-        ax.set_title("Top 15 Most Important Features in Predicting Mortality")
-        st.pyplot(fig)
-        st.info("A higher importance score means the model relies on this feature more heavily when making a prediction.")
+        st.header("Top Clinical Predictors of Mortality"); importances = pd.DataFrame({'feature': X.columns, 'importance': model.feature_importances_}).sort_values('importance', ascending=False)
+        fig, ax = plt.subplots(figsize=(10, 8)); sns.barplot(x='importance', y='feature', data=importances.head(15), palette='mako', ax=ax); ax.set_title("Top 15 Most Important Features"); st.pyplot(fig)
 
     with tab3:
-        st.header("Patient Risk Stratification")
-        st.markdown("This plot visualizes the model's predicted risk for every patient in the dataset, segmented by two key drivers.")
-
-        # Get prediction probabilities for the entire dataset
-        df_model['risk_score'] = model.predict_proba(X)[:, 1] # Probability of mortality
-
-        # Select two of the most important features to plot against
-        top_features = importances['feature'].tolist()
-        x_axis_feat = top_features[0]
-        y_axis_feat = top_features[1]
-        
-        fig = px.scatter(
-            df_model,
-            x=x_axis_feat,
-            y=y_axis_feat,
-            color='risk_score',
-            color_continuous_scale=px.colors.sequential.OrRd,
-            hover_name=df_model.index,
-            hover_data={'risk_score': ':.2f}', 'Mortality': True},
-            title=f"Patient Risk Map: {x_axis_feat} vs. {y_axis_feat}"
-        )
-        fig.update_layout(
-            xaxis_title=x_axis_feat.replace('_', ' ').title(),
-            yaxis_title=y_axis_feat.replace('_', ' ').title(),
-            coloraxis_colorbar=dict(title="Mortality Risk")
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        st.info(f"Each dot is a patient. Yellow dots indicate a high predicted risk of mortality. Hover over a dot to see details.")
+        st.header("Patient Risk Stratification"); df_model['risk_score'] = model.predict_proba(X)[:, 1]
+        top_features = importances['feature'].tolist(); x_axis_feat = top_features[0]; y_axis_feat = top_features[1]
+        fig = px.scatter(df_model, x=x_axis_feat, y=y_axis_feat, color='risk_score', color_continuous_scale=px.colors.sequential.OrRd, hover_name=df_model.index, hover_data={'risk_score': ':.2f}', 'Mortality': True}, title=f"Patient Risk Map: {x_axis_feat} vs. {y_axis_feat}")
+        fig.update_layout(xaxis_title=x_axis_feat.replace('_', ' ').title(), yaxis_title=y_axis_feat.replace('_', ' ').title(), coloraxis_colorbar=dict(title="Mortality Risk")); st.plotly_chart(fig, use_container_width=True)
 
     with tab4:
         st.header("Live Patient Risk Calculator")
-        st.markdown("Enter a new patient's data to get an instant risk prediction from the trained model.")
-
-        # Create a form for user inputs
         with st.form("prediction_form"):
-            input_data = {}
-            # Create columns for a cleaner layout
-            col1, col2, col3 = st.columns(3)
-            
-            # Use a loop to dynamically create sliders/inputs for all features
+            input_data = {}; col1, col2, col3 = st.columns(3)
             for i, feature in enumerate(available_features):
                 current_col = [col1, col2, col3][i % 3]
                 with current_col:
-                    # Use reasonable defaults and ranges
-                    if 'Age' in feature:
-                        input_data[feature] = st.slider(feature, 18, 100, 65)
-                    elif 'Gender' in feature:
-                        input_data[feature] = 1 if st.selectbox(feature, ['Female', 'Male']) == 'Male' else 0
-                    elif df_model[feature].max() <= 1: # Binary features
-                        input_data[feature] = st.checkbox(feature, value=False)
-                    else: # Other numerical features
-                        min_val = int(df_model[feature].min())
-                        max_val = int(df_model[feature].max())
-                        mean_val = int(df_model[feature].mean())
-                        input_data[feature] = st.slider(feature, min_val, max_val, mean_val)
-            
+                    if 'Age' in feature: input_data[feature] = st.slider(feature, 18, 100, 65)
+                    elif 'Gender' in feature: input_data[feature] = 1 if st.selectbox(feature, ['Female', 'Male']) == 'Male' else 0
+                    elif df_model[feature].max() <= 1: input_data[feature] = st.checkbox(feature, value=False)
+                    else: min_val = int(df_model[feature].min()); max_val = int(df_model[feature].max()); mean_val = int(df_model[feature].mean()); input_data[feature] = st.slider(feature, min_val, max_val, mean_val)
             submitted = st.form_submit_button("Calculate Mortality Risk")
-
         if submitted:
-            # Prepare the input for the model
-            input_df = pd.DataFrame([input_data])
-            
-            # Ensure the order of columns matches the training data
-            input_df = input_df[X_train.columns]
-            
-            # Get prediction probability
-            prediction_proba = model.predict_proba(input_df)[0][1] # Probability of class 1 (Died)
-            
-            st.subheader("Prediction Result")
-            risk_percent = prediction_proba * 100
-            
-            # Display the result with a progress bar and text
-            st.progress(prediction_proba)
-            st.metric(label="Predicted Risk of Mortality", value=f"{risk_percent:.1f}%")
-
-            if risk_percent > 50:
-                st.error("This patient is classified as HIGH RISK. Immediate senior review is recommended.")
-            elif risk_percent > 20:
-                st.warning("This patient is classified as MODERATE RISK. Close monitoring is advised.")
-            else:
-                st.success("This patient is classified as LOW RISK.")
+            input_df = pd.DataFrame([input_data])[X_train.columns]; prediction_proba = model.predict_proba(input_df)[0][1]; risk_percent = prediction_proba * 100
+            st.progress(prediction_proba); st.metric(label="Predicted Risk of Mortality", value=f"{risk_percent:.1f}%")
+            if risk_percent > 50: st.error("HIGH RISK")
+            elif risk_percent > 20: st.warning("MODERATE RISK")
+            else: st.success("LOW RISK")
 
 # --- Main App Logic ---
 sepsis_df = load_data('ICU_Sepsis_Cleaned.csv')
 
 if sepsis_df is not None:
-    # Use the comprehensive EDA function if you have it, otherwise the original one.
-    # For this example, let's assume the comprehensive one exists.
-    # Replace display_eda_dashboard with your full EDA function.
-    
     st.sidebar.title("🩺 Sepsis Analytics")
     app_mode = st.sidebar.selectbox(
         "Choose the Dashboard",
@@ -247,9 +225,6 @@ if sepsis_df is not None:
     )
     
     if app_mode == "Comprehensive EDA":
-        # Call your full EDA dashboard function here
-        st.header("Comprehensive EDA Dashboard")
-        st.info("This is where the detailed EDA visualizations would be shown.")
-        # display_eda_dashboard(sepsis_df) # Uncomment this line
+        display_eda_dashboard(sepsis_df)
     else:
         display_prediction_dashboard(sepsis_df)
