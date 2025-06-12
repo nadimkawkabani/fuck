@@ -58,7 +58,7 @@ rename_map = {
             'Mortalite': 'Mortality',
             'KOAH_Asthım': 'COPD_Asthma'
         }
-        df.rename(columns=rename_map, inplace=True, errors='ignore')
+df.rename(columns=rename_map, inplace=True, errors='ignore')
 
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
