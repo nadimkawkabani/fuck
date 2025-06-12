@@ -35,21 +35,17 @@ def load_data(file_path):
         'KOAH_Asthım': 'COPD_Asthma'
     }, inplace=True)
 
-    # Clean the last column name if it has an extra apostrophe
     if "Antibioterapy’" in df.columns:
         df.rename(columns={"Antibioterapy’": "Antibioterapy"}, inplace=True)
     
-    # Convert categorical 'Yes'/'No' or 'Var'/'Yok' style columns to binary 1/0
     binary_map_var = {'Var': 1, 'Yok': 0}
     for col in ['Systemic_Inflammatory_Response_Syndrome_SIRS_presence', 'Comorbidity']:
          if col in df.columns and df[col].dtype == 'object':
             df[col] = df[col].map(binary_map_var).fillna(0)
             
-    # Convert Gender to numeric for easier processing
     if 'Gender' in df.columns and df['Gender'].dtype == 'object':
         df['Gender'] = df['Gender'].map({'Female': 0, 'Male': 1})
     
-    # Create Age Bins for better visualization
     if 'Age' in df.columns:
         bins = [0, 40, 50, 60, 70, 80, 120]
         labels = ['<40', '40-49', '50-59', '60-69', '70-79', '80+']
@@ -62,17 +58,19 @@ def display_eda_dashboard(df):
     st.title("🏥 Sepsis Exploratory Data Analysis (EDA)")
     st.markdown("Exploring trends and patterns in the sepsis patient dataset.")
 
-    # --- Sidebar Filters for EDA ---
     st.sidebar.header("EDA Filters")
     if 'Age_Group' not in df.columns:
         st.warning("Age_Group column not found. Age-based filtering is disabled.")
         filtered_df = df.copy()
     else:
-        # CORRECTED LINE: Convert categorical uniques to string list before sorting
+        # --- CORRECTED SECTION ---
+        # Create a clean list of options by dropping NaNs before sorting
+        age_options = sorted(list(df['Age_Group'].dropna().unique()))
+        
         selected_age = st.sidebar.multiselect(
             "Filter by Age Group",
-            options=sorted(df['Age_Group'].unique().astype(str)),
-            default=sorted(df['Age_Group'].unique().astype(str))
+            options=age_options,
+            default=age_options
         )
         filtered_df = df[df['Age_Group'].isin(selected_age)]
 
@@ -82,7 +80,6 @@ def display_eda_dashboard(df):
         index=0
     )
 
-    # --- Filtering Logic ---
     if selected_gender != 'All':
         gender_code = 1 if selected_gender == 'Male' else 0
         filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
@@ -91,14 +88,12 @@ def display_eda_dashboard(df):
         st.warning("No data available for the selected filters.")
         return
 
-    # --- 2x2 Grid Layout ---
     col1, col2 = st.columns(2)
     
     with col1:
-        # --- Who: Mortality Rate by Age Group ---
         st.subheader("Mortality Rate by Age Group")
         if 'Age_Group' in filtered_df.columns and 'Mortality' in filtered_df.columns:
-            # Use observed=True to handle filtered categories correctly
+            # Using observed=True is a best practice for filtered categoricals
             age_mortality = filtered_df.groupby('Age_Group', observed=True)['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
             if 1 in age_mortality.columns:
                 fig, ax = plt.subplots()
@@ -112,7 +107,6 @@ def display_eda_dashboard(df):
         else:
             st.warning("Required columns for Age/Mortality analysis not found.")
 
-        # --- Why: Risk Score Impact ---
         st.subheader("Impact of NEWS Score on Mortality")
         if 'The_National_Early_Warning_Score_NEWS' in filtered_df.columns and 'Mortality' in filtered_df.columns:
             fig, ax = plt.subplots()
@@ -124,7 +118,6 @@ def display_eda_dashboard(df):
             st.warning("Required columns for NEWS score analysis not found.")
 
     with col2:
-        # --- What: Key Vitals Comparison ---
         st.subheader("Key Vital Signs: Survivors vs. Non-Survivors")
         vital_options = [col for col in ['Pulse_rate', 'Respiratory_Rate', 'Fever', 'Oxygen_saturation'] if col in filtered_df.columns]
         if vital_options and 'Mortality' in filtered_df.columns:
@@ -137,7 +130,6 @@ def display_eda_dashboard(df):
         else:
             st.warning("Required columns for Vital Sign analysis not found.")
 
-        # --- What: Comorbidity Impact ---
         st.subheader("Impact of Comorbidities on Outcome")
         if 'Comorbidity' in filtered_df.columns and 'Mortality' in filtered_df.columns:
             comorbidity_impact = filtered_df.groupby('Comorbidity')['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
@@ -150,12 +142,11 @@ def display_eda_dashboard(df):
         else:
             st.warning("Required columns for Comorbidity analysis not found.")
 
-# --- Predictive Analysis Dashboard ---
+# ... (The display_prediction_dashboard function remains the same) ...
 def display_prediction_dashboard(df):
     st.title("🤖 Mortality Prediction Analysis")
     st.markdown("Training a model to predict patient mortality based on clinical data.")
 
-    # --- Feature Selection and Data Prep ---
     features = [
         'Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus',
         'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate',
@@ -177,7 +168,6 @@ def display_prediction_dashboard(df):
     X = df_model[available_features]
     y = df_model[target]
 
-    # --- Model Training ---
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     with st.spinner("Training the model..."):
@@ -188,7 +178,6 @@ def display_prediction_dashboard(df):
     
     st.success("Model trained successfully!")
 
-    # --- Display Model Performance ---
     st.subheader("Model Performance")
     col1, col2 = st.columns(2)
     with col1:
@@ -204,7 +193,6 @@ def display_prediction_dashboard(df):
         plt.xlabel('Predicted')
         st.pyplot(fig)
 
-    # --- Feature Importance ---
     st.subheader("Top Clinical Predictors of Mortality")
     st.markdown("These are the most important factors the model used to make predictions.")
     
@@ -218,13 +206,12 @@ def display_prediction_dashboard(df):
     ax.set_title("Top 10 Most Important Features")
     st.pyplot(fig)
 
-    # --- Interactive Prediction Sidebar ---
     st.sidebar.header("Real-Time Risk Prediction")
     st.sidebar.markdown("Enter hypothetical patient data to predict mortality risk.")
     
     inputs = {}
     if 'Age' in available_features: inputs['Age'] = st.sidebar.slider("Age", 18, 100, 65)
-    if 'Gender' in available_features: inputs['Gender'] = 1 if st.sidebar.selectbox("Gender", ['Female', 'Male']) == 'Male' else 0
+    if 'Gender' in available_features: inputs['Gender'] = 1 if st.sidebar.selectbox("Gender", ['Female', 'Male'], key="pred_gender") == 'Male' else 0
     if 'The_National_Early_Warning_Score_NEWS' in available_features: inputs['NEWS Score'] = st.sidebar.slider("NEWS Score", 0, 20, 5)
     
     if st.sidebar.button("Predict Risk"):
@@ -235,7 +222,6 @@ def display_prediction_dashboard(df):
             prediction_result = "Lower Risk of Mortality"
             st.sidebar.success(prediction_result)
         st.sidebar.caption("Note: This is an illustrative prediction.")
-
 
 # --- Main App Logic ---
 sepsis_df = load_data('ICU_Sepsis_Cleaned.csv')
