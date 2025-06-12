@@ -53,7 +53,7 @@ def load_data(file_path):
 
     return df
 
-# --- COMPREHENSIVE EDA DASHBOARD (RESTORED) ---
+# --- COMPREHENSIVE EDA DASHBOARD (FULL VERSION) ---
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset, exploring all key factors.")
@@ -67,7 +67,7 @@ def display_eda_dashboard(df):
         selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
         filtered_df = df[df['Age_Group'].isin(selected_age)]
 
-    selected_gender = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
+    selected_gender = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0, key="eda_gender_filter")
 
     if selected_gender != 'All':
         gender_code = 1 if selected_gender == 'Male' else 0
@@ -77,6 +77,7 @@ def display_eda_dashboard(df):
         st.warning("No data available for the selected filters.")
         return
 
+    # --- Define column groups for plotting ---
     demographic_cols = ['Age_Group', 'Gender']
     vital_cols = ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation']
     lab_cols = ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine']
@@ -88,41 +89,54 @@ def display_eda_dashboard(df):
     available_risks = [col for col in risk_score_cols if col in df.columns]
     available_comorbidities = [col for col in comorbidity_cols if col in df.columns]
 
+    # --- Tabbed Layout ---
     tab1, tab2, tab3 = st.tabs(["📊 Demographics", "🩸 Vitals & Lab Results", "⚠️ Risk Factors & Comorbidities"])
 
     with tab1:
         st.header("Demographic Analysis")
         col1, col2 = st.columns(2)
+        
         with col1:
             st.subheader("Patient Age Distribution")
             if 'Age' in filtered_df.columns:
-                fig, ax = plt.subplots()
-                sns.histplot(filtered_df['Age'], kde=True, ax=ax, bins=20)
-                ax.set_title("Distribution of Patient Ages")
-                st.pyplot(fig)
+                fig, ax = plt.subplots(); sns.histplot(filtered_df['Age'], kde=True, ax=ax, bins=20); ax.set_title("Distribution of Patient Ages"); st.pyplot(fig)
+
+            st.subheader("Mortality Rate by Age Group")
+            if 'Age_Group' in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                age_mortality = filtered_df.groupby('Age_Group', observed=True)['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
+                if 1 in age_mortality.columns:
+                    fig, ax = plt.subplots(); age_mortality[1].plot(kind='barh', ax=ax, color='salmon'); ax.set_xlabel("Mortality Rate (%)"); st.pyplot(fig)
+
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns:
                 gender_counts = filtered_df['Gender'].map({0: 'Female', 1: 'Male'}).value_counts()
-                fig, ax = plt.subplots()
-                gender_counts.plot(kind='pie', autopct='%1.1f%%', ax=ax, colors=['skyblue', 'lightcoral'])
-                ax.set_ylabel('')
-                st.pyplot(fig)
+                fig, ax = plt.subplots(); gender_counts.plot(kind='pie', autopct='%1.1f%%', ax=ax, colors=['skyblue', 'lightcoral']); ax.set_ylabel(''); ax.set_title("Patient Gender Breakdown"); st.pyplot(fig)
+
+            st.subheader("Mortality Rate by Gender")
+            if 'Gender' in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                gender_mortality = filtered_df.groupby('Gender')['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
+                gender_mortality.index = gender_mortality.index.map({0: 'Female', 1: 'Male'})
+                if 1 in gender_mortality.columns:
+                    fig, ax = plt.subplots(); gender_mortality[1].plot(kind='bar', ax=ax, color='lightcoral'); ax.set_ylabel("Mortality Rate (%)"); ax.tick_params(axis='x', rotation=0); st.pyplot(fig)
 
     with tab2:
         st.header("Vitals & Lab Results Analysis")
+        st.markdown("Comparing measurements between patients who survived and those who did not.")
+        
         with st.expander("Vital Signs Analysis", expanded=True):
-            if not available_vitals: st.warning("No vital sign columns found.")
+            if not available_vitals: st.warning("No vital sign columns found in the dataset.")
             else:
                 cols = st.columns(3)
                 for i, vital in enumerate(available_vitals):
                     with cols[i % 3]:
                         fig, ax = plt.subplots(figsize=(6, 5)); sns.boxplot(data=filtered_df, x='Mortality', y=vital, ax=ax, palette='viridis'); ax.set_xticklabels(['Survived', 'Died']); ax.set_title(vital.replace('_', ' ').title()); st.pyplot(fig)
+
         with st.expander("Lab Results Analysis"):
-            if not available_labs: st.warning("No lab result columns found.")
+            if not available_labs: st.warning("No lab result columns found in the dataset.")
             else:
                 lab_to_plot = st.selectbox("Select a Lab Value to Visualize", options=available_labs)
-                fig, ax = plt.subplots(); sns.kdeplot(data=filtered_df, x=lab_to_plot, hue='Mortality', fill=True, palette='coolwarm', common_norm=False); ax.set_title(f"Distribution of {lab_to_plot}"); st.pyplot(fig)
+                fig, ax = plt.subplots(); sns.kdeplot(data=filtered_df, x=lab_to_plot, hue='Mortality', fill=True, palette='coolwarm', common_norm=False); ax.set_title(f"Distribution of {lab_to_plot} for Survivors vs. Non-Survivors"); st.pyplot(fig)
 
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
@@ -142,7 +156,7 @@ def display_eda_dashboard(df):
                 for comorbidity in available_comorbidities:
                     if comorbidity in filtered_df.columns:
                         rate = filtered_df[filtered_df[comorbidity] == 1]['Mortality'].mean() * 100
-                        if not pd.isna(rate): comorbidity_data.append({'Comorbidity': comorbidity, 'Mortality Rate (%)': rate})
+                        if not pd.isna(rate): comorbidity_data.append({'Comorbidity': comorbidity.replace('_', ' '), 'Mortality Rate (%)': rate})
                 if comorbidity_data:
                     mortality_df = pd.DataFrame(comorbidity_data).sort_values('Mortality Rate (%)', ascending=False)
                     fig, ax = plt.subplots(figsize=(8, 6)); sns.barplot(data=mortality_df, y='Comorbidity', x='Mortality Rate (%)', ax=ax, palette='rocket'); ax.set_title("Mortality Rate for Patients with Specific Comorbidities"); st.pyplot(fig)
@@ -203,7 +217,7 @@ def display_prediction_dashboard(df):
                 current_col = [col1, col2, col3][i % 3]
                 with current_col:
                     if 'Age' in feature: input_data[feature] = st.slider(feature, 18, 100, 65)
-                    elif 'Gender' in feature: input_data[feature] = 1 if st.selectbox(feature, ['Female', 'Male']) == 'Male' else 0
+                    elif 'Gender' in feature: input_data[feature] = 1 if st.selectbox(feature, ['Female', 'Male'], key=f"pred_{feature}") == 'Male' else 0
                     elif df_model[feature].max() <= 1: input_data[feature] = st.checkbox(feature, value=False)
                     else: min_val = int(df_model[feature].min()); max_val = int(df_model[feature].max()); mean_val = int(df_model[feature].mean()); input_data[feature] = st.slider(feature, min_val, max_val, mean_val)
             submitted = st.form_submit_button("Calculate Mortality Risk")
