@@ -32,18 +32,22 @@ if 'model_details' not in st.session_state:
         "features": None
     }
 
-# --- Data Loading and Caching ---
+# --- Load Data ---
 @st.cache_data
-def load_data(url):
-    """
-    Loads and cleans the sepsis data from a given URL.
-    """
-    try:
-        df = pd.read_csv(url)
-        
-        if df.empty:
-            st.error("The loaded CSV file is empty.")
-            return None
+def load_data():
+    df = pd.read_csv("/content/ICU_Sepsis_Cleaned.csv")
+    df['suicides_no'] = pd.to_numeric(df['suicides_no'], errors='coerce')
+    df['population'] = pd.to_numeric(df['population'], errors='coerce')
+    df['suicide_rate'] = np.where(
+        df['population'] > 0,
+        (df['suicides_no'] / df['population']) * 100000, 0
+    )
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df['age'] = df['age'].astype(str)
+    return df
+
+df_original = load_data()
+
             
         # --- Data Cleaning ---
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
@@ -93,6 +97,10 @@ def load_data(url):
     except Exception as e:
         st.error(f"Failed to load or process data from URL. Please check the URL and file format. Error: {str(e)}")
         return None
+
+# Load the data once when the app starts
+sepsis_df = load_data()
+
 
 # --- Visualization Functions (No Changes) ---
 def plot_interactive_distribution(df, column, hue=None):
@@ -144,7 +152,6 @@ def display_eda_dashboard(df):
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
     with tab1:
         st.header("Demographic Analysis")
-        # ... (rest of the tab code is the same as before)
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Patient Age Distribution")
@@ -163,7 +170,6 @@ def display_eda_dashboard(df):
             st.plotly_chart(fig, use_container_width=True)
     with tab2:
         st.header("Vitals & Lab Results Analysis")
-        # ... (rest of the tab code is the same as before)
         with st.expander("📈 Vital Signs Analysis", expanded=True):
             if vital_cols and 'Mortality' in filtered_df.columns:
                 selected_vital = st.selectbox("Select Vital Sign to Visualize", options=vital_cols)
@@ -176,7 +182,6 @@ def display_eda_dashboard(df):
             else: st.warning("No lab columns found.")
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
-        # ... (rest of the tab code is the same as before)
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
             st.subheader("Comorbidity Prevalence")
             comorbidity_counts = filtered_df[comorbidity_cols].sum().sort_values(ascending=False)
@@ -235,7 +240,6 @@ def display_prediction_dashboard(df):
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
     
     with tab1:
-        #... (rest of tab code is the same as before)
         st.header("Model Configuration")
         col1, col2 = st.columns(2)
         with col1:
@@ -261,7 +265,6 @@ def display_prediction_dashboard(df):
     model_type = st.session_state.model_details["model_type"]
 
     with tab2:
-        #... (rest of tab code is the same as before)
         st.header(f"Performance Evaluation: {model_type}")
         metrics_df, roc_data, cm = evaluate_model(model, X_test, y_test)
         fpr, tpr, roc_auc_val = roc_data
@@ -278,7 +281,6 @@ def display_prediction_dashboard(df):
             fig.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
             st.plotly_chart(fig, use_container_width=True)
     with tab3:
-        #... (rest of tab code is the same as before)
         st.header(f"Model Interpretability: {model_type}")
         st.subheader("Feature Importance")
         importance_df = None
@@ -296,7 +298,6 @@ def display_prediction_dashboard(df):
             st.pyplot(fig)
         except Exception as e: st.warning(f"Could not generate PDP: {e}")
     with tab4:
-        #... (rest of tab code is the same as before)
         st.header("Patient Risk Calculator")
         with st.form("prediction_form"):
             input_data, col1, col2, col3 = {}, *st.columns(3)
@@ -323,16 +324,8 @@ def display_prediction_dashboard(df):
 # --- Main App Logic ---
 def main():
     st.sidebar.title("🩺 Sepsis Analytics Suite")
-    st.sidebar.markdown("---")
-
-    # !!! IMPORTANT: PASTE YOUR RAW GITHUB URL HERE !!!
-    data_url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICL_Sepsis_Cleaned.csv"
     
-    # Load data automatically when the app starts
-    with st.spinner('Loading patient data from repository...'):
-        sepsis_df = load_data(data_url)
-
-    # --- Main content rendering ---
+    # Check if data was loaded successfully at startup
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -348,9 +341,9 @@ def main():
         elif app_mode == "Mortality Predictive Analysis":
             display_prediction_dashboard(sepsis_df)
     else:
-        # This message will show if the data loading fails
+        # This message will show if the data loading failed
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
-        st.error("🚨 Could not load the dataset from the GitHub repository. Please ensure the URL is correct and the file is accessible.")
+        st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 
