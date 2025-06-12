@@ -47,7 +47,6 @@ def load_data():
             st.error("The loaded CSV file from the URL is empty.")
             return None
 
-        # --- Start of Data Cleaning Block ---
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
@@ -61,19 +60,28 @@ def load_data():
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
 
-        # UPDATED LOGIC: Since Gender is already 1 and 2, we don't map it from text.
-        # We only map the other text-based columns.
+        # --- CORRECTED & SIMPLIFIED GENDER HANDLING ---
+        # The goal is to end with Gender being 1 for Male and 0 for Female.
+        if 'Gender' in df.columns:
+            # If the column is text, map it to 1/0
+            if pd.api.types.is_object_dtype(df['Gender']):
+                gender_map = {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0}
+                df['Gender'] = df['Gender'].str.lower().map(gender_map)
+            # If the column is already numeric (e.g., 1 and 2), convert 2 to 0.
+            elif pd.api.types.is_numeric_dtype(df['Gender']):
+                df['Gender'] = df['Gender'].replace(2, 0)
+        
+        # Handle other text-based columns
         binary_mappings = {
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'Var': 1, 'Yok': 0},
             'Comorbidity': {'Var': 1, 'Yok': 0},
-            'Mortality': {'Mortal': 1, 'Mortal Değil': 0, 1: 1, 0: 0}
+            'Mortality': {'Mortal': 1, 'Mortal Değil': 0}
         }
-
         for col, mapping in binary_mappings.items():
             if col in df.columns and pd.api.types.is_object_dtype(df[col]):
                 df[col] = df[col].str.lower().map(mapping)
 
-        # Ensure all key categorical/binary columns are integer type
+        # Ensure all key categorical/binary columns are clean integers
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -126,12 +134,11 @@ def display_eda_dashboard(df):
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     if 'Gender' in df.columns:
-        # CORRECTED MAPPING: Use 1 for Male and 2 for Female
-        gender_map = {1: 'Male', 2: 'Female'}
+        # --- CORRECTED LOGIC (Male=1, Female=0) ---
+        gender_map = {1: 'Male', 0: 'Female'}
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
-            # CORRECTED LOGIC
-            gender_code = 1 if selected_gender_str == 'Male' else 2
+            gender_code = 1 if selected_gender_str == 'Male' else 0
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
 
     if 'Mortality' in df.columns:
@@ -159,8 +166,8 @@ def display_eda_dashboard(df):
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns:
-                # This now uses the corrected gender_map {1: 'Male', 2: 'Female'}
-                gender_map = {1: 'Male', 2: 'Female'}
+                # --- CORRECTED LOGIC (Male=1, Female=0) ---
+                gender_map = {1: 'Male', 0: 'Female'}
                 gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
                 fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
                 st.plotly_chart(fig, use_container_width=True)
@@ -319,9 +326,9 @@ def display_prediction_dashboard(df):
                     if feature == 'Age':
                         input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
-                        # CORRECTED LOGIC: Use 1 for Male and 2 for Female
+                        # --- CORRECTED LOGIC (Male=1, Female=0) ---
                         selected_gender = st.selectbox("Gender", ['Male', 'Female'])
-                        input_data[feature] = 1 if selected_gender == 'Male' else 2
+                        input_data[feature] = 1 if selected_gender == 'Male' else 0
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
                         input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                     else:
