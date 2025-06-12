@@ -551,7 +551,7 @@ def main():
     # Option 2: Load from GitHub by default if no file is uploaded
     else:
         # !!! IMPORTANT: PASTE YOUR RAW GITHUB URL HERE !!!
-        default_url = "ICU_Sepsis_Cleaned.csv"
+        default_url = "https://raw.githubusercontent.com/your-username/your-repo-name/main/ICL_Sepsis_Cleaned.csv"
         
         st.sidebar.markdown("---")
         if st.sidebar.button('Load Demo Data from GitHub'):
