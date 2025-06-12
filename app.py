@@ -346,6 +346,5 @@ def main():
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
-
 if __name__ == "__main__":
     main()
