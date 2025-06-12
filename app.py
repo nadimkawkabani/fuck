@@ -31,16 +31,25 @@ if 'model' not in st.session_state:
     st.session_state.model = None
 
 # --- Data Loading and Caching with Enhanced Error Handling ---
-@st.cache_data
-def load_data(file_path):
-    """
-    Loads and preprocesses the sepsis data from a CSV file with robust error handling.
-    """
+@st.cache_data  # Cache for performance
+def load_data():
     try:
-        df = pd.read_csv(file_path)
+        url = "https://raw.githubusercontent.com/your-username/your-repo/main/ICL_Sepsis_Cleaned.csv"
+        df = pd.read_csv(url)
+        
         if df.empty:
-            st.error("Error: The file is empty.")
+            st.error("Loaded CSV is empty!")
             return None
+            
+        # Your data cleaning code here...
+        return df
+        
+    except Exception as e:
+        st.error(f"Failed to load data: {str(e)}")
+        return None
+
+# In your main function:
+sepsis_df = load_data()
             
         # Data validation
         required_columns = ['Age', 'Gender', 'Mortality']
