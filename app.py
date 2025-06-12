@@ -13,6 +13,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # --- Data Loading and Caching ---
 @st.cache_data
 def load_data(file_path):
@@ -39,11 +40,10 @@ def load_data(file_path):
         df.rename(columns={"Antibioterapy’": "Antibioterapy"}, inplace=True)
     
     # Convert categorical 'Yes'/'No' or 'Var'/'Yok' style columns to binary 1/0
-    # This requires knowing the exact values. Let's assume 'Var'/'Yok' for some.
     binary_map_var = {'Var': 1, 'Yok': 0}
     for col in ['Systemic_Inflammatory_Response_Syndrome_SIRS_presence', 'Comorbidity']:
          if col in df.columns and df[col].dtype == 'object':
-            df[col] = df[col].map(binary_map_var).fillna(0) # fillna(0) for safety
+            df[col] = df[col].map(binary_map_var).fillna(0)
             
     # Convert Gender to numeric for easier processing
     if 'Gender' in df.columns and df['Gender'].dtype == 'object':
@@ -64,15 +64,15 @@ def display_eda_dashboard(df):
 
     # --- Sidebar Filters for EDA ---
     st.sidebar.header("EDA Filters")
-    # Check if Age_Group exists before using it
     if 'Age_Group' not in df.columns:
         st.warning("Age_Group column not found. Age-based filtering is disabled.")
-        filtered_df = df.copy() # Use the full dataframe
+        filtered_df = df.copy()
     else:
+        # CORRECTED LINE: Convert categorical uniques to string list before sorting
         selected_age = st.sidebar.multiselect(
             "Filter by Age Group",
-            options=sorted(df['Age_Group'].unique()),
-            default=sorted(df['Age_Group'].unique())
+            options=sorted(df['Age_Group'].unique().astype(str)),
+            default=sorted(df['Age_Group'].unique().astype(str))
         )
         filtered_df = df[df['Age_Group'].isin(selected_age)]
 
@@ -98,7 +98,8 @@ def display_eda_dashboard(df):
         # --- Who: Mortality Rate by Age Group ---
         st.subheader("Mortality Rate by Age Group")
         if 'Age_Group' in filtered_df.columns and 'Mortality' in filtered_df.columns:
-            age_mortality = filtered_df.groupby('Age_Group')['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
+            # Use observed=True to handle filtered categories correctly
+            age_mortality = filtered_df.groupby('Age_Group', observed=True)['Mortality'].value_counts(normalize=True).unstack().fillna(0) * 100
             if 1 in age_mortality.columns:
                 fig, ax = plt.subplots()
                 age_mortality[1].plot(kind='bar', ax=ax, color='salmon')
@@ -163,10 +164,9 @@ def display_prediction_dashboard(df):
     ]
     target = 'Mortality'
 
-    # Filter out features that don't exist in the dataframe to prevent errors
     available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns:
-        st.error("The dataset is missing essential columns for prediction (e.g., 'Mortality' or feature columns).")
+        st.error("The dataset is missing essential columns for prediction.")
         return
     
     df_model = df[available_features + [target]].dropna()
@@ -180,7 +180,7 @@ def display_prediction_dashboard(df):
     # --- Model Training ---
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
-    with st.spinner("Training the model... This may take a moment."):
+    with st.spinner("Training the model..."):
         model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
@@ -222,26 +222,22 @@ def display_prediction_dashboard(df):
     st.sidebar.header("Real-Time Risk Prediction")
     st.sidebar.markdown("Enter hypothetical patient data to predict mortality risk.")
     
-    # Create inputs only for features that are available
     inputs = {}
     if 'Age' in available_features: inputs['Age'] = st.sidebar.slider("Age", 18, 100, 65)
     if 'Gender' in available_features: inputs['Gender'] = 1 if st.sidebar.selectbox("Gender", ['Female', 'Male']) == 'Male' else 0
     if 'The_National_Early_Warning_Score_NEWS' in available_features: inputs['NEWS Score'] = st.sidebar.slider("NEWS Score", 0, 20, 5)
-    # Add more inputs as needed...
     
     if st.sidebar.button("Predict Risk"):
-        # This is an illustrative prediction based on a few key drivers
         if inputs.get('NEWS Score', 0) > 7 or inputs.get('Age', 0) > 75:
             prediction_result = "High Risk of Mortality"
             st.sidebar.error(prediction_result)
         else:
             prediction_result = "Lower Risk of Mortality"
             st.sidebar.success(prediction_result)
-        st.sidebar.caption("Note: This is an illustrative prediction based on key risk factors, not the full trained model.")
+        st.sidebar.caption("Note: This is an illustrative prediction.")
 
 
 # --- Main App Logic ---
-# Load data with the correct filename
 sepsis_df = load_data('ICU_Sepsis_Cleaned.csv')
 
 if sepsis_df is not None:
