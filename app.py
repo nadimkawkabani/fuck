@@ -32,38 +32,41 @@ if 'model_details' not in st.session_state:
         "features": None
     }
 
-# --- Load Data ---
+# --- Data Loading and Cleaning ---
 @st.cache_data
 def load_data():
-    df = pd.read_csv("/content/ICU_Sepsis_Cleaned.csv")
-    df['suicides_no'] = pd.to_numeric(df['suicides_no'], errors='coerce')
-    df['population'] = pd.to_numeric(df['population'], errors='coerce')
-    df['suicide_rate'] = np.where(
-        df['population'] > 0,
-        (df['suicides_no'] / df['population']) * 100000, 0
-    )
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df['age'] = df['age'].astype(str)
-    return df
-
-df_original = load_data()
-
-            
-        # --- Data Cleaning ---
-df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
+    """
+    Loads and cleans the sepsis data from a hardcoded GitHub URL.
+    """
+    # !!! IMPORTANT: PASTE YOUR RAW GITHUB URL HERE !!!
+    url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICL_Sepsis_Cleaned.csv"
+    
+    try:
+        df = pd.read_csv(url)
         
-rename_map = {
+        if df.empty:
+            st.error("The loaded CSV file from the URL is empty.")
+            return None
+            
+        # --- Start of Data Cleaning Block ---
+        # Standardize column names
+        df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
+        
+        # Rename columns for clarity
+        rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
             'Direnç_Durumu': 'Resistance_Status',
             'Mortalite': 'Mortality',
             'KOAH_Asthım': 'COPD_Asthma'
         }
-df.rename(columns=rename_map, inplace=True, errors='ignore')
+        df.rename(columns=rename_map, inplace=True, errors='ignore')
 
+        # Validate that the essential 'Mortality' column exists
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
         
+        # Convert binary/categorical columns to numeric
         binary_mappings = {
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'Var': 1, 'Yok': 0},
             'Comorbidity': {'Var': 1, 'Yok': 0},
@@ -76,6 +79,7 @@ df.rename(columns=rename_map, inplace=True, errors='ignore')
                 df[col] = df[col].map(mapping).fillna(df[col]) 
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
+        # Convert key feature columns to numeric, coercing errors
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
         
@@ -83,11 +87,13 @@ df.rename(columns=rename_map, inplace=True, errors='ignore')
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
+        # Create Age Groups from the 'Age' column
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
         
+        # Optimize memory usage by converting low-cardinality objects to 'category' type
         for col in df.columns:
             if df[col].dtype == 'object' and df[col].nunique() < 10:
                 df[col] = df[col].astype('category')
