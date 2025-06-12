@@ -52,7 +52,7 @@ df_original = load_data()
         # --- Data Cleaning ---
 df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         
-        rename_map = {
+rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
             'Direnç_Durumu': 'Resistance_Status',
             'Mortalite': 'Mortality',
