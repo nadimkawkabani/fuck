@@ -38,7 +38,6 @@ def load_data():
     """
     Loads and cleans the sepsis data from a hardcoded GitHub URL.
     """
-    # !!! IMPORTANT: PASTE THE RAW URL OF YOUR CSV FILE FROM GITHUB HERE !!!
     url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis_Cleaned.csv"
     
     try:
@@ -48,11 +47,7 @@ def load_data():
             st.error("The loaded CSV file from the URL is empty.")
             return None
 
-        # --- Start of Data Cleaning Block ---
-        # Standardize column names
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
-
-        # Rename columns for clarity
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
             'Direnç_Durumu': 'Resistance_Status',
@@ -61,16 +56,15 @@ def load_data():
         }
         df.rename(columns=rename_map, inplace=True, errors='ignore')
 
-        # Validate that the essential 'Mortality' column exists
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
 
-        # Convert binary/categorical columns to numeric
+        # UPDATED MAPPING: Gender now maps Female to 2.
         binary_mappings = {
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'Var': 1, 'Yok': 0},
             'Comorbidity': {'Var': 1, 'Yok': 0},
-            'Gender': {'Female': 0, 'Male': 1, 'F': 0, 'M': 1, 'Kadın': 0, 'Erkek': 1},
+            'Gender': {'Male': 1, 'Female': 2, 'M': 1, 'F': 2, 'Erkek': 1, 'Kadın': 2},
             'Mortality': {'Mortal': 1, 'Mortal Değil': 0, 1: 1, 0: 0}
         }
 
@@ -79,21 +73,17 @@ def load_data():
                 df[col] = df[col].map(mapping).fillna(df[col])
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-        # Convert key feature columns to numeric, coercing errors
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
-
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # Create Age Groups from the 'Age' column
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
 
-        # Optimize memory usage by converting low-cardinality objects to 'category' type
         for col in df.columns:
             if df[col].dtype == 'object' and df[col].nunique() < 10:
                 df[col] = df[col].astype('category')
@@ -122,7 +112,7 @@ def plot_correlation_matrix(df, columns):
     fig = px.imshow(corr, text_auto=True, aspect='auto', color_continuous_scale='RdBu_r', title='Feature Correlation Matrix')
     st.plotly_chart(fig, use_container_width=True)
 
-# --- EDA Dashboard Function ---
+# --- EDA Dashboard Function (UPDATED)---
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
@@ -135,10 +125,10 @@ def display_eda_dashboard(df):
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     if 'Gender' in df.columns:
-        gender_map = {0: 'Female', 1: 'Male'}
+        gender_map = {1: 'Male', 2: 'Female'}
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
-            gender_code = 1 if selected_gender_str == 'Male' else 0
+            gender_code = 1 if selected_gender_str == 'Male' else 2
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
 
     if 'Mortality' in df.columns:
@@ -166,10 +156,25 @@ def display_eda_dashboard(df):
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns and 'Mortality' in filtered_df.columns:
-                gender_map = {0: 'Female', 1: 'Male'}
-                gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
-                fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
-                st.plotly_chart(fig, use_container_width=True)
+                gender_map = {1: 'Male', 2: 'Female'}
+                total_population = len(filtered_df)
+                
+                if total_population > 0:
+                    gender_rates = (filtered_df['Gender'].value_counts() / total_population) * 100000
+                    gender_rates.index = gender_rates.index.map(gender_map)
+                    
+                    fig = px.pie(
+                        gender_rates,
+                        values=gender_rates.values,
+                        names=gender_rates.index,
+                        title='Gender Rate per 100,000 Patients'
+                    )
+                    fig.update_traces(textinfo='percent+label', texttemplate='%{label}<br>%{value:.0f} per 100k')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No data to display for gender distribution.")
+
+
         st.subheader("Age vs. Mortality")
         if 'Age' in filtered_df.columns and 'Mortality' in filtered_df.columns:
             fig = px.box(filtered_df, x='Mortality', y='Age', color='Mortality', points='all', title='Age Distribution by Mortality Status')
@@ -325,7 +330,9 @@ def display_prediction_dashboard(df):
                     if feature == 'Age':
                         input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
-                        input_data[feature] = 1 if st.selectbox("Gender", ['Female', 'Male']) == 'Male' else 0
+                        # UPDATED LOGIC to use 1 for Male and 2 for Female
+                        selected_gender = st.selectbox("Gender", ['Male', 'Female'])
+                        input_data[feature] = 1 if selected_gender == 'Male' else 2
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
                         input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                     else:
@@ -354,7 +361,6 @@ def display_prediction_dashboard(df):
 def main():
     st.sidebar.title("🩺 Sepsis Analytics Suite")
 
-    # Check if data was loaded successfully at startup
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -370,7 +376,6 @@ def main():
         elif app_mode == "Mortality Predictive Analysis":
             display_prediction_dashboard(sepsis_df)
     else:
-        # This message will show if the data loading failed
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
