@@ -97,8 +97,6 @@ def load_data():
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
 
-sepsis_df = load_data()
-
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
     title = f'Distribution of {column}'
@@ -507,15 +505,45 @@ def display_prediction_dashboard(df):
                         st.success("🟢 LOW RISK", icon="✅")
                         st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
 
-# --- Wrapper function for the main application ---
-def run_dashboard():
-    """
-    This function contains the original application logic.
-    It's called after the password has been verified.
-    """
-    # ADDED: Logo in the sidebar
-    st.sidebar.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", use_column_width=True)
+# --- NEW AND IMPROVED PASSWORD AND MAIN APP LOGIC ---
+
+def check_password():
+    """Returns `True` if the user has entered the correct password."""
     
+    # Check if the password is correct in the session state.
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # If not, show the login form.
+    st.title("🔐 Secure Access")
+    st.write("Please enter the password to access the Sepsis Analytics Dashboard.")
+    
+    # Use a form to capture the password.
+    with st.form("password_form"):
+        password_attempt = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button("Login")
+
+        if submit_button:
+            # Check if the entered password matches the one in secrets.
+            if password_attempt == st.secrets["password"]:
+                st.session_state["password_correct"] = True
+                # Rerun the app to show the dashboard.
+                st.rerun()
+            else:
+                st.error("😕 The password you entered is incorrect.")
+    
+    # Return False if the password is not yet correct.
+    return False
+
+def run_dashboard():
+    """This function contains the original application logic and the logo."""
+    
+    # ADDED: Logo and Logout button in the sidebar.
+    st.sidebar.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", use_column_width=True)
+    if st.sidebar.button("Logout"):
+        st.session_state["password_correct"] = False
+        st.rerun()
+
     st.sidebar.title("🩺 Sepsis Analytics Suite")
 
     if sepsis_df is not None:
@@ -534,45 +562,11 @@ def run_dashboard():
     else:
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
-        st.image("https://www.unprme.org/the-american-university-of-beirut/", width=400)
+        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 
-# --- Main function to handle password protection ---
-def main():
-    """
-    Main function to run the Streamlit app.
-    Handles password protection before displaying the dashboard.
-    """
-    # For demonstration, the password is hardcoded.
-    # In a real-world scenario, use st.secrets for better security.
-    CORRECT_PASSWORD = "msba"
+# --- Main App Execution ---
+sepsis_df = load_data()
 
-    # Initialize session state for password check
-    if "password_correct" not in st.session_state:
-        st.session_state.password_correct = False
-
-    # If password is not correct, show the login form
-    if not st.session_state.password_correct:
-        st.title("🔐 Secure Access Required")
-        st.markdown("---")
-        
-        with st.form("login_form"):
-            st.markdown("#### Please enter the password to view the dashboard.")
-            password_attempt = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login")
-
-            if submitted:
-                if password_attempt == CORRECT_PASSWORD:
-                    st.session_state.password_correct = True
-                    # Rerun the script to immediately reflect the state change
-                    # FIXED: Replaced st.experimental_rerun() with st.rerun()
-                    st.rerun()
-                else:
-                    st.error("😕 The password you entered is incorrect. Please try again.")
-    # If the password is correct, run the main dashboard application
-    else:
-        run_dashboard()
-
-# --- Main App Logic ---
-if __name__ == "__main__":
-    main()
+if check_password():
+    run_dashboard()
