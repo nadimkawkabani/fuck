@@ -16,71 +16,6 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
-# Add these imports at the top (if not already present)
-from PIL import Image
-import io
-import base64
-
-# Add this right after the imports but before the page configuration
-# --- Password Protection ---
-def check_password():
-    """Simple password check without needing .toml file"""
-    # Set your password here (change "your_password" to your actual password)
-    CORRECT_PASSWORD = "your_password"
-    
-    # Show password input field
-    password = st.sidebar.text_input("Enter Dashboard Password:", type="password")
-    
-    if password:
-        if password == CORRECT_PASSWORD:
-            st.sidebar.success("Access granted")
-            return True
-        else:
-            st.sidebar.error("Incorrect password")
-            return False
-    else:
-        return False  # No password entered yet
-
-# Add this logo display function (place it with the other visualization functions)
-def display_logo():
-    # You can replace this with your actual logo image (base64 encoded or URL)
-    logo_url = "https://www.unprme.org/the-american-university-of-beirut/"
-    
-    # Alternatively, you can use a base64 encoded image if you have one
-    # logo_base64 = "your_base64_encoded_image_here"
-    # st.markdown(f'<img src="data:image/png;base64,{logo_base64}" width="300">', unsafe_allow_html=True)
-    
-    st.sidebar.image(logo_url, width=200)
-    st.sidebar.markdown("---")
-
-# Modify the main() function to include password check and logo
-def main():
-    if not check_password():
-        st.stop()  # Do not continue if check_password is not True.
-    
-    # Display logo in sidebar
-    display_logo()
-    
-    st.sidebar.title("🩺 Sepsis Analytics Suite")
-    if sepsis_df is not None:
-        st.sidebar.markdown("---")
-        app_mode = st.sidebar.selectbox(
-            "Choose Dashboard",
-            ["Mortality Predictive Analysis", "Comprehensive EDA"],
-            index=0,
-            key="app_mode_select"
-        )
-        st.sidebar.markdown("---")
-        if app_mode == "Comprehensive EDA":
-            display_eda_dashboard(sepsis_df)
-        elif app_mode == "Mortality Predictive Analysis":
-            display_prediction_dashboard(sepsis_df)
-    else:
-        st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
-        st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
-
-# The rest of your code remains exactly the same...
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -572,9 +507,17 @@ def display_prediction_dashboard(df):
                         st.success("🟢 LOW RISK", icon="✅")
                         st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
 
-# --- Main App Logic ---
-def main():
+# --- NEW: Wrapper function for the main application ---
+def run_dashboard():
+    """
+    This function contains the original application logic.
+    It's called after the password has been verified.
+    """
+    # --- ADDED: Logo in the sidebar ---
+    st.sidebar.image("https://www.unprme.org/the-american-university-of-beirut/", use_column_width=True)
+    
     st.sidebar.title("🩺 Sepsis Analytics Suite")
+
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -593,5 +536,42 @@ def main():
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
+
+# --- NEW: Main function to handle password protection ---
+def main():
+    """
+    Main function to run the Streamlit app.
+    Handles password protection before displaying the dashboard.
+    """
+    # For demonstration, the password is hardcoded.
+    # In a real-world scenario, use st.secrets for better security.
+    CORRECT_PASSWORD = "msba"
+
+    # Initialize session state for password check
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    # If password is not correct, show the login form
+    if not st.session_state.password_correct:
+        st.title("🔐 Secure Access Required")
+        st.markdown("---")
+        
+        with st.form("login_form"):
+            st.markdown("#### Please enter the password to view the dashboard.")
+            password_attempt = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login")
+
+            if submitted:
+                if password_attempt == CORRECT_PASSWORD:
+                    st.session_state.password_correct = True
+                    # Rerun the script to immediately reflect the state change
+                    st.experimental_rerun()
+                else:
+                    st.error("😕 The password you entered is incorrect. Please try again.")
+    # If the password is correct, run the main dashboard application
+    else:
+        run_dashboard()
+
+# --- Main App Logic ---
 if __name__ == "__main__":
     main()
