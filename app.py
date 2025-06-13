@@ -24,36 +24,22 @@ import base64
 # Add this right after the imports but before the page configuration
 # --- Password Protection ---
 def check_password():
-    """Returns `True` if the user had the correct password."""
+    """Simple password check without needing .toml file"""
+    # Set your password here (change "your_password" to your actual password)
+    CORRECT_PASSWORD = "your_password"
     
-    # Set your password here (change "admin123" to your desired password)
-    CORRECT_PASSWORD = "msba"
-
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == CORRECT_PASSWORD:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
+    # Show password input field
+    password = st.sidebar.text_input("Enter Dashboard Password:", type="password")
+    
+    if password:
+        if password == CORRECT_PASSWORD:
+            st.sidebar.success("Access granted")
+            return True
         else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        st.error("Please enter the password to access the dashboard")
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        st.error("😕 Password incorrect")
-        return False
+            st.sidebar.error("Incorrect password")
+            return False
     else:
-        # Password correct.
-        return True
+        return False  # No password entered yet
 
 # Add this logo display function (place it with the other visualization functions)
 def display_logo():
