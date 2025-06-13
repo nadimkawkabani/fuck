@@ -166,11 +166,25 @@ def display_eda_dashboard(df):
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
-            st.subheader("Comorbidity Prevalence")
-            comorbidity_counts = filtered_df[comorbidity_cols].sum().sort_values(ascending=False)
-            fig = px.bar(comorbidity_counts, orientation='h', title='Prevalence of Comorbidities', labels={'value': 'Count', 'index': 'Comorbidity'})
-            st.plotly_chart(fig, use_container_width=True)
-        else: st.warning("Comorbidity or Mortality columns not found.")
+            st.subheader("Comorbidity Rate per 100,000 Patients")
+            total_patients = len(filtered_df)
+            if total_patients > 0:
+                comorbidity_counts = filtered_df[comorbidity_cols].sum()
+                comorbidity_rates = (comorbidity_counts / total_patients) * 100000
+                comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
+                fig = px.bar(
+                    comorbidity_rates,
+                    orientation='h',
+                    title='Comorbidity Rate per 100,000 Patients',
+                    labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
+                    text=comorbidity_rates.round(1)
+                )
+                fig.update_traces(textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No patient data to calculate rates.")
+        else:
+            st.warning("Comorbidity or Mortality columns not found.")
     with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col])]
@@ -194,53 +208,33 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
 def display_prediction_dashboard(df):
     st.title("🧮 Sepsis Mortality Risk Calculator")
     st.markdown("Enter patient data below to calculate the predicted risk of mortality based on a pre-trained Random Forest model.")
-
     features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score']
     target = 'Mortality'
     available_features = [f for f in features if f in df.columns]
-
     if not available_features or target not in df.columns:
         st.error("❌ Essential columns for prediction are missing from the source data.")
         return
-
     df_model = df[available_features + [target]].dropna()
     if df_model.empty:
         st.error("❌ No data available for model training after handling missing values.")
         return
-
     X = df_model[available_features]
     y = df_model[target]
-
     if y.nunique() < 2:
-        st.error(
-            "❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction."
-        )
+        st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
         return
-
-    # --- Automatic Model Training (if not already trained) ---
     if st.session_state.model_details["model"] is None:
         with st.spinner("Initializing the predictive model... Please wait."):
-            # We use default parameters for the automatic training
             X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
             model = train_model(X_train, y_train, model_type='Random Forest')
-            st.session_state.model_details = {
-                "model": model,
-                "model_type": 'Random Forest',
-                "features": X_train.columns.tolist()
-            }
+            st.session_state.model_details = {"model": model, "model_type": 'Random Forest', "features": X_train.columns.tolist()}
         st.success("✅ Predictive model is ready.")
-
-    # Get the trained model from session state
     model = st.session_state.model_details["model"]
     model_features = st.session_state.model_details["features"]
-
-    # --- Display the Risk Calculator Form ---
     st.header("Patient Risk Calculator")
     with st.form("prediction_form"):
         input_data = {}
         col1, col2, col3 = st.columns(3)
-        
-        # Dynamically create input fields
         for i, feature in enumerate(model_features):
             with [col1, col2, col3][i % 3]:
                 if feature == 'Age':
@@ -251,38 +245,27 @@ def display_prediction_dashboard(df):
                 elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
                     input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                 else:
-                    # Use reasonable defaults for sliders if data is available
                     min_val = float(X[feature].min())
                     max_val = float(X[feature].max())
                     mean_val = float(X[feature].mean())
                     input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
-
         submitted = st.form_submit_button("Calculate Mortality Risk")
-        
         if submitted:
             input_df = pd.DataFrame([input_data])[model_features]
             risk_percent = 0.0
             if hasattr(model, "predict_proba") and len(model.classes_) == 2:
                 risk_percent = model.predict_proba(input_df)[0][1] * 100
-            
             st.subheader("Prediction Results")
             colA, colB = st.columns([1, 2])
             with colA:
                 st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
                 fig = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=risk_percent,
-                    title={'text': "Risk Level"},
+                    mode="gauge+number", value=risk_percent, title={'text': "Risk Level"},
                     gauge={'axis': {'range': [None, 100]},
-                           'steps': [
-                               {'range': [0, 20], 'color': "lightgreen"},
-                               {'range': [20, 50], 'color': "orange"},
-                               {'range': [50, 100], 'color': "red"}],
-                           'bar': {'color': "darkblue"}}
-                ))
+                           'steps': [{'range': [0, 20], 'color': "lightgreen"}, {'range': [20, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}],
+                           'bar': {'color': "darkblue"}}))
                 fig.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
                 st.plotly_chart(fig, use_container_width=True)
-
             with colB:
                 if risk_percent > 50:
                     st.error("🔴 HIGH RISK", icon="🚨")
@@ -301,14 +284,14 @@ def main():
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
             "Choose Dashboard",
-            ["Comprehensive EDA", "Mortality Risk Calculator"], # Changed label
+            ["Comprehensive EDA", "Mortality Risk Calculator"],
             index=0,
             key="app_mode_select"
         )
         st.sidebar.markdown("---")
         if app_mode == "Comprehensive EDA":
             display_eda_dashboard(sepsis_df)
-        elif app_mode == "Mortality Risk Calculator": # Changed label
+        elif app_mode == "Mortality Risk Calculator":
             display_prediction_dashboard(sepsis_df)
     else:
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
