@@ -158,16 +158,12 @@ def display_eda_dashboard(df):
             st.plotly_chart(fig, use_container_width=True)
     with tab2:
         st.header("Vitals & Lab Results Analysis")
-        with st.expander("📈 Vital Signs Analysis", expanded=True):
-            if vital_cols and 'Mortality' in filtered_df.columns:
-                selected_vital = st.selectbox("Select Vital Sign to Visualize", options=vital_cols)
-                plot_interactive_distribution(filtered_df, selected_vital, 'Mortality')
-            else: st.warning("Vital sign or Mortality columns not found.")
-        with st.expander("🧪 Lab Results Analysis"):
-            if lab_cols and 'Mortality' in filtered_df.columns:
-                selected_lab = st.selectbox("Select Lab Value", options=lab_cols, key="lab_select")
-                plot_interactive_distribution(filtered_df, selected_lab, 'Mortality')
-            else: st.warning("Lab or Mortality columns not found.")
+        all_vitals_labs = vital_cols + lab_cols
+        if all_vitals_labs:
+             selected_feature = st.selectbox("Select Vital Sign or Lab Value to Visualize", options=all_vitals_labs)
+             if selected_feature in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                plot_interactive_distribution(filtered_df, selected_feature, 'Mortality')
+        else: st.warning("No vital sign or lab columns found.")
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
@@ -192,27 +188,20 @@ def display_eda_dashboard(df):
             st.warning("Comorbidity or Mortality columns not found.")
     with tab4:
         st.header("Feature Correlations")
-        all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col])]
+        all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col]) and filtered_df[col].nunique() > 1]
         if len(all_numeric_cols) > 1:
             plot_correlation_matrix(filtered_df, all_numeric_cols)
-        else: st.warning("Not enough numeric columns for correlation analysis.")
+        else: st.warning("Not enough numeric columns with variance for correlation analysis.")
 
 # --- ML Model Functions ---
 @st.cache_resource
 def train_model(_X_train, _y_train, model_type='XGBoost', **params):
     if model_type == 'XGBoost':
-        model = XGBClassifier(
-            objective='binary:logistic',
-            eval_metric='logloss',
-            use_label_encoder=False,
-            random_state=42,
-            **params # Pass all other params like n_estimators, scale_pos_weight etc.
-        )
+        model = XGBClassifier(objective='binary:logistic', eval_metric='logloss', use_label_encoder=False, random_state=42, **params)
     elif model_type == 'Logistic Regression':
         model = make_pipeline(StandardScaler(), LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000, solver='liblinear', **params))
     else: # Default to Random Forest
         model = RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1, **params)
-        
     model.fit(_X_train, _y_train)
     return model
 
@@ -226,10 +215,8 @@ def evaluate_model(model, X_test, y_test):
             if proba_results.shape[1] == 2: y_proba = proba_results[:, 1]
             elif model.classes_[0] == 1: y_proba = np.ones(len(y_test))
         except Exception: pass
-
     try: roc_auc = roc_auc_score(y_test, y_proba)
     except ValueError: roc_auc = 0.5 
-
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
         'Value': [
@@ -245,7 +232,6 @@ def evaluate_model(model, X_test, y_test):
         roc_auc_val = auc(fpr, tpr)
     except (ValueError, IndexError):
         fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc 
-
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
     return metrics_df, (fpr, tpr, roc_auc_val), cm
 
@@ -267,6 +253,7 @@ def display_prediction_dashboard(df):
         st.error("❌ No data available for model training after handling missing values.")
         return
 
+    # --- FIX: Define X and y from the refined feature list ---
     X = df_model[available_features]
     y = df_model[target]
 
@@ -274,6 +261,7 @@ def display_prediction_dashboard(df):
         st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
         return
 
+    # --- FIX: Split the data AFTER defining the final X and y ---
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
@@ -347,7 +335,6 @@ def display_prediction_dashboard(df):
         else:
             try:
                 fig, ax = plt.subplots(figsize=(8, 5))
-                # Explicitly specify target=1 for binary classification PDP
                 PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], target=1, ax=ax)
                 ax.set_title(f"Partial Dependence Plot for {pdp_feature} on Mortality Risk")
                 st.pyplot(fig)
