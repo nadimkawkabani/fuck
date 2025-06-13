@@ -110,7 +110,6 @@ def plot_correlation_matrix(df, columns):
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
-    # ... [Rest of EDA function is unchanged and correct] ...
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
@@ -180,7 +179,6 @@ def display_eda_dashboard(df):
             plot_correlation_matrix(filtered_df, all_numeric_cols)
         else: st.warning("Not enough numeric columns for correlation analysis.")
 
-
 # --- ML Model Functions ---
 @st.cache_resource
 def train_model(_X_train, _y_train, model_type='Random Forest', **params):
@@ -193,23 +191,16 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- NEW BULLETPROOF MODEL EVALUATION FUNCTION ---
+# --- FULLY ROBUST MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     
-    # Ultra-robust block to get probabilities and prevent IndexError
-    y_proba = np.zeros(len(y_test)) # Default to 0% probability for class 1
-    if hasattr(model, "predict_proba"):
-        try:
-            proba_results = model.predict_proba(X_test)
-            # Check the shape of the output directly before slicing
-            if proba_results.shape[1] == 2:
-                y_proba = proba_results[:, 1]
-            elif model.classes_[0] == 1:
-                # This handles the rare case where the model only learned class 1
-                y_proba = np.ones(len(y_test))
-        except Exception as e:
-            st.warning(f"Could not get model probabilities: {e}")
+    # Defensive block for predict_proba
+    y_proba = None
+    if hasattr(model, "predict_proba") and len(model.classes_) == 2:
+        y_proba = model.predict_proba(X_test)[:, 1]
+    else:
+        y_proba = y_pred.astype(float) # Fallback for single-class models
 
     # Defensive Metric Calculation
     try:
@@ -256,6 +247,7 @@ def display_prediction_dashboard(df):
     X = df_model[available_features]
     y = df_model[target]
     
+    # CRITICAL CHECK: Ensure target variable has two classes before proceeding.
     if y.nunique() < 2:
         st.error(
             "❌ **Model Training Halted:** The target column ('Mortality') "
@@ -347,16 +339,11 @@ def display_prediction_dashboard(df):
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             if st.form_submit_button("Calculate Mortality Risk"):
                 input_df = pd.DataFrame([input_data])[model_features]
-                risk_percent = 0.0
-                if hasattr(model, "predict_proba"):
-                    try:
-                        proba_results = model.predict_proba(input_df)
-                        if proba_results.shape[1] == 2:
-                            risk_percent = proba_results[0, 1] * 100
-                        elif model.classes_[0] == 1:
-                            risk_percent = 100.0
-                    except Exception:
-                        pass # Keep risk_percent at 0
+                risk_percent = 0
+                if hasattr(model, "predict_proba") and len(model.classes_) == 2:
+                    risk_percent = model.predict_proba(input_df)[0][1] * 100
+                else:
+                    st.warning("Model could not predict probability; it may have been trained on a single outcome.")
                 
                 st.subheader("Prediction Results")
                 colA, colB = st.columns(2)
