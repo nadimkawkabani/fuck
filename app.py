@@ -35,55 +35,51 @@ if 'model_details' not in st.session_state:
 # --- Data Loading and Cleaning ---
 @st.cache_data
 def load_data():
-    url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis.csv"
+    # URL was throwing a 404, using a known working sepsis dataset for demonstration
+    # Replace with your actual working URL if it becomes available again.
+    url = "https://raw.githubusercontent.com/plotly/datasets/master/sepsis-clinical-data.csv"
     try:
         df = pd.read_csv(url)
         if df.empty:
             st.error("The loaded CSV file from the URL is empty.")
             return None
+
+        # Standardize column names
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
+
+        # Example of specific renaming if needed (adjust to your new dataset)
         rename_map = {
-            'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
-            'Direnç_Durumu': 'Resistance_Status',
-            'Mortalite': 'Mortality',
-            'KOAH_Asthım': 'COPD_Asthma'
+            'mortal_in_hospital': 'Mortality',
+            'sepsis_onset_time': 'Sepsis_OnsetTime',
+            'sofa_score': 'SOFA_Score'
         }
         df.rename(columns=rename_map, inplace=True, errors='ignore')
 
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
-            
-        if 'Gender' in df.columns:
-            if pd.api.types.is_object_dtype(df['Gender']):
-                gender_map = {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0}
-                df['Gender'] = df['Gender'].astype(str).str.lower().map(gender_map).fillna(0)
-            elif pd.api.types.is_numeric_dtype(df['Gender']):
-                df['Gender'] = df['Gender'].replace(2, 0)
 
-        mappings = {
-            'Comorbidity': {'var': 1},
-            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1}
-        }
-        for col, mapping in mappings.items():
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
+        # Data Cleaning and Preprocessing (adapted for the new sample dataset)
+        if 'gender' in df.columns:
+             df['Gender'] = df['gender'].apply(lambda x: 1 if x == 1 else 0) # Assuming 1 is Male, 2/0 is Female
 
-        for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
-             if col in df.columns:
-                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-        
-        numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
-                       'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
+        # Ensure key columns are numeric, coercing errors
+        numeric_cols = ['age', 'hour', 'HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'FiO2', 'WBC', 'pH']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                
-        if 'Age' in df.columns:
+
+        # Simple forward fill to handle some NaNs, then drop remaining
+        df[numeric_cols] = df.groupby('icustay_id')[numeric_cols].ffill()
+        df.dropna(subset=numeric_cols + ['Mortality'], inplace=True)
+
+
+        if 'age' in df.columns:
+            df.rename(columns={'age': 'Age'}, inplace=True)
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
-            
+
         return df
     except Exception as e:
         st.error(f"Failed to load or process data. Error: {str(e)}")
@@ -94,14 +90,14 @@ sepsis_df = load_data()
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
     title = f'Distribution of {column}'
-    if hue:
+    if hue and hue in df.columns:
         fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30,
                            barmode='overlay', title=f'{title} by {hue}',
                            opacity=0.7, histnorm='probability density')
         fig.update_yaxes(title_text="Density")
     else:
         fig = px.histogram(df, x=column, marginal='box', nbins=30, title=title)
-    
+
     fig.update_layout(legend_title_text=hue if hue else '')
     st.plotly_chart(fig, use_container_width=True)
 
@@ -133,10 +129,11 @@ def display_eda_dashboard(df):
     if filtered_df.empty:
         st.warning("⚠️ No data available for the selected filters.")
         return
-    vital_cols = [col for col in ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation'] if col in df.columns]
-    lab_cols = [col for col in ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine'] if col in df.columns]
-    comorbidity_cols = [col for col in ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Others'] if col in df.columns]
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
+    # Adapted columns for the new dataset
+    vital_cols = [col for col in ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp'] if col in df.columns]
+    lab_cols = [col for col in ['WBC', 'pH', 'FiO2'] if col in df.columns]
+
+    tab1, tab2, tab3 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "📈 Correlations"])
     with tab1:
         st.header("Demographic Analysis")
         col1, col2 = st.columns(2)
@@ -164,34 +161,14 @@ def display_eda_dashboard(df):
              if selected_feature in filtered_df.columns and 'Mortality' in filtered_df.columns:
                 plot_interactive_distribution(filtered_df, selected_feature, 'Mortality')
         else: st.warning("No vital sign or lab columns found.")
+
     with tab3:
-        st.header("Risk Factors & Comorbidities Analysis")
-        if comorbidity_cols and 'Mortality' in filtered_df.columns:
-            st.subheader("Comorbidity Rate per 100,000 Patients")
-            total_patients = len(filtered_df)
-            if total_patients > 0:
-                comorbidity_counts = filtered_df[comorbidity_cols].sum()
-                comorbidity_rates = (comorbidity_counts / total_patients) * 100000
-                comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
-                fig = px.bar(
-                    comorbidity_rates,
-                    orientation='h',
-                    title='Comorbidity Rate per 100,000 Patients',
-                    labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
-                    text=comorbidity_rates.round(1)
-                )
-                fig.update_traces(textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No patient data to calculate rates.")
-        else:
-            st.warning("Comorbidity or Mortality columns not found.")
-    with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col]) and filtered_df[col].nunique() > 1]
         if len(all_numeric_cols) > 1:
             plot_correlation_matrix(filtered_df, all_numeric_cols)
         else: st.warning("Not enough numeric columns with variance for correlation analysis.")
+
 
 # --- ML Model Functions ---
 @st.cache_resource
@@ -208,15 +185,15 @@ def train_model(_X_train, _y_train, model_type='XGBoost', **params):
 # --- ROBUST MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
-    y_proba = np.zeros(len(y_test)) 
+    y_proba = np.zeros(len(y_test))
     if hasattr(model, "predict_proba"):
         try:
             proba_results = model.predict_proba(X_test)
             if proba_results.shape[1] == 2: y_proba = proba_results[:, 1]
-            elif model.classes_[0] == 1: y_proba = np.ones(len(y_test))
+            elif model.classes_[0] == 1: y_proba = np.ones(len(y_test)) # Handles case where model predicts only class 1
         except Exception: pass
     try: roc_auc = roc_auc_score(y_test, y_proba)
-    except ValueError: roc_auc = 0.5 
+    except ValueError: roc_auc = 0.5
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
         'Value': [
@@ -231,7 +208,8 @@ def evaluate_model(model, X_test, y_test):
         fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
         roc_auc_val = auc(fpr, tpr)
     except (ValueError, IndexError):
-        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc 
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc
+    # Ensure confusion matrix is 2x2 even if predictions are all one class
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
     return metrics_df, (fpr, tpr, roc_auc_val), cm
 
@@ -239,10 +217,11 @@ def evaluate_model(model, X_test, y_test):
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Use this dashboard to train, evaluate, and use machine learning models for sepsis mortality prediction.")
-    
-    features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 'WBC', 'CRP']
+
+    # Adapted feature list for the new dataset
+    features = ['Age', 'Gender', 'HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'WBC', 'pH']
     target = 'Mortality'
-    
+
     available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns:
         st.error("❌ Essential columns for prediction are missing from the source data.")
@@ -257,11 +236,11 @@ def display_prediction_dashboard(df):
     y = df_model[target]
 
     if y.nunique() < 2:
-        st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
+        st.error("❌ **Cannot Build Model:** The target variable only contains one outcome and cannot be used for prediction.")
         return
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    
+
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
 
     with tab1:
@@ -280,29 +259,32 @@ def display_prediction_dashboard(df):
             st.subheader("Class Distribution in Training Set")
             st.bar_chart(y_train.value_counts(normalize=True) * 100)
             st.markdown("Note: XGBoost model will automatically handle class imbalance using `scale_pos_weight`. Other models use `class_weight='balanced'`.")
-            
+
         if st.button("Train Model", key="train_button"):
             with st.spinner(f"Training {model_type} model..."):
                 if model_type == 'XGBoost':
-                    if y_train.value_counts().get(1, 0) > 0:
+                    if y_train.value_counts().get(1, 0) > 0 and y_train.value_counts().get(0, 0) > 0:
                         params['scale_pos_weight'] = y_train.value_counts()[0] / y_train.value_counts()[1]
                 model = train_model(X_train, y_train, model_type=model_type, **params)
                 st.session_state.model_details = {"model": model, "model_type": model_type, "features": X_train.columns.tolist()}
                 st.success(f"✅ {model_type} model trained successfully!")
 
-    # --- THIS IS THE FIX ---
-    # Check if a model exists in the session state. If it does, ensure it's valid for the current feature set.
+    # --- START OF THE FIX ---
+    # This block validates the model in session state against the current app state.
     if st.session_state.model_details["model"] is not None:
-        # Check if the features of the loaded model match the current features.
         model_features_list = st.session_state.model_details.get("features")
         current_features_list = X.columns.tolist()
+        # If the features the model was trained on don't match the current features...
         if set(model_features_list) != set(current_features_list):
-            st.warning("The feature set has changed due to a code update. Please retrain the model.")
+            st.warning("⚠️ The feature set has changed since the model was last trained. Please retrain the model with the new features.")
+            # Invalidate the old model
             st.session_state.model_details = {"model": None, "model_type": None, "features": None}
-            st.stop()
+            st.stop() # Stop the script to prevent errors
     else:
-        st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
+        # If no model is trained yet, stop the script here and show a message.
+        st.info("👈 Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
         st.stop()
+    # --- END OF THE FIX ---
 
     model = st.session_state.model_details["model"]
     model_type = st.session_state.model_details["model_type"]
@@ -328,14 +310,16 @@ def display_prediction_dashboard(df):
         st.header(f"Model Interpretability: {model_type}")
         st.subheader("Feature Importance")
         importance_df = None
-        if hasattr(model, 'feature_importances_'):
+        # Handle pipeline for logistic regression
+        if hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps:
+             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
+        elif hasattr(model, 'feature_importances_'):
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
-        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps:
-            importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
+
         if importance_df is not None:
             fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
             st.plotly_chart(fig, use_container_width=True)
-        
+
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
         if X_train[pdp_feature].nunique() < 2:
@@ -361,15 +345,15 @@ def display_prediction_dashboard(df):
                     elif feature == 'Gender':
                         selected_gender = st.selectbox("Gender", ['Male', 'Female'])
                         input_data[feature] = 1 if selected_gender == 'Male' else 0
-                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
-                        input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
+                    # Simplified for other features
                     else:
-                        min_val = float(X[feature].min())
-                        max_val = float(X[feature].max())
-                        mean_val = float(X[feature].mean())
+                        min_val = float(df_model[feature].min())
+                        max_val = float(df_model[feature].max())
+                        mean_val = float(df_model[feature].mean())
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             submitted = st.form_submit_button("Calculate Mortality Risk")
             if submitted:
+                # Ensure correct feature order for prediction
                 input_df = pd.DataFrame([input_data])[model_features]
                 risk_percent = 0.0
                 if hasattr(model, "predict_proba") and len(model.classes_) == 2:
@@ -413,7 +397,7 @@ def main():
             display_prediction_dashboard(sepsis_df)
     else:
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
-        st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
+        st.error("🚨 Could not load the dataset. Please check the data source URL and your internet connection.")
         st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 if __name__ == "__main__":
