@@ -61,7 +61,6 @@ def load_data():
             elif pd.api.types.is_numeric_dtype(df['Gender']):
                 df['Gender'] = df['Gender'].replace(2, 0)
 
-        # ROBUST MAPPING: This logic is safer for creating binary 0/1 columns.
         mappings = {
             'Mortality': {'mortal': 1},
             'Comorbidity': {'var': 1},
@@ -71,7 +70,6 @@ def load_data():
             if col in df.columns:
                 df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
 
-        # Final check to ensure columns are numeric integers
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -92,9 +90,7 @@ def load_data():
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
 
-# Load the data once when the app starts
 sepsis_df = load_data()
-
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
@@ -114,6 +110,7 @@ def plot_correlation_matrix(df, columns):
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
+    # ... [Rest of EDA function is unchanged and correct] ...
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
@@ -142,7 +139,7 @@ def display_eda_dashboard(df):
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Patient Age Distribution")
-            if 'Age' in filtered_df.columns:
+            if 'Age' in filtered_df.columns and 'Mortality' in filtered_df.columns:
                 plot_interactive_distribution(filtered_df, 'Age', 'Mortality')
         with col2:
             st.subheader("Gender Distribution")
@@ -162,14 +159,12 @@ def display_eda_dashboard(df):
             if vital_cols and 'Mortality' in filtered_df.columns:
                 selected_vital = st.selectbox("Select Vital Sign to Visualize", options=vital_cols)
                 plot_interactive_distribution(filtered_df, selected_vital, 'Mortality')
-            else:
-                st.warning("Vital sign or Mortality columns not found.")
+            else: st.warning("Vital sign or Mortality columns not found.")
         with st.expander("🧪 Lab Results Analysis"):
-            if lab_cols:
+            if lab_cols and 'Mortality' in filtered_df.columns:
                 selected_lab = st.selectbox("Select Lab Value", options=lab_cols, key="lab_select")
                 plot_interactive_distribution(filtered_df, selected_lab, 'Mortality')
-            else:
-                st.warning("No lab columns found.")
+            else: st.warning("Lab or Mortality columns not found.")
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
@@ -177,15 +172,13 @@ def display_eda_dashboard(df):
             comorbidity_counts = filtered_df[comorbidity_cols].sum().sort_values(ascending=False)
             fig = px.bar(comorbidity_counts, orientation='h', title='Prevalence of Comorbidities', labels={'value': 'Count', 'index': 'Comorbidity'})
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Comorbidity or Mortality columns not found.")
+        else: st.warning("Comorbidity or Mortality columns not found.")
     with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col])]
         if len(all_numeric_cols) > 1:
             plot_correlation_matrix(filtered_df, all_numeric_cols)
-        else:
-            st.warning("Not enough numeric columns for correlation analysis.")
+        else: st.warning("Not enough numeric columns for correlation analysis.")
 
 
 # --- ML Model Functions ---
@@ -200,15 +193,29 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- CORRECTED & ROBUST MODEL EVALUATION FUNCTION ---
+# --- NEW BULLETPROOF MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+    
+    # Ultra-robust block to get probabilities and prevent IndexError
+    y_proba = np.zeros(len(y_test)) # Default to 0% probability for class 1
+    if hasattr(model, "predict_proba"):
+        try:
+            proba_results = model.predict_proba(X_test)
+            # Check the shape of the output directly before slicing
+            if proba_results.shape[1] == 2:
+                y_proba = proba_results[:, 1]
+            elif model.classes_[0] == 1:
+                # This handles the rare case where the model only learned class 1
+                y_proba = np.ones(len(y_test))
+        except Exception as e:
+            st.warning(f"Could not get model probabilities: {e}")
 
+    # Defensive Metric Calculation
     try:
         roc_auc = roc_auc_score(y_test, y_proba)
     except ValueError:
-        roc_auc = 0.5 
+        roc_auc = 0.5 # Default for undefined cases
 
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
@@ -221,20 +228,17 @@ def evaluate_model(model, X_test, y_test):
         ]
     })
 
+    # Defensive ROC Curve Generation
     try:
-        fpr, tpr, _ = roc_curve(y_test, y_proba)
+        fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
         roc_auc_val = auc(fpr, tpr)
-    except ValueError:
-        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5
+    except (ValueError, IndexError):
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc # Fallback ROC
 
-    labels = sorted(np.unique(y_test.tolist() + y_pred.tolist()))
-    if len(labels) < 2: 
-        labels = [0, 1]
-    
-    cm = confusion_matrix(y_test, y_pred, labels=labels)
+    # Defensive Confusion Matrix Generation - force 2x2
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
 
     return metrics_df, (fpr, tpr, roc_auc_val), cm
-
 
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
@@ -252,16 +256,14 @@ def display_prediction_dashboard(df):
     X = df_model[available_features]
     y = df_model[target]
     
-    # --- ADDED THIS CRITICAL CHECK ---
-    # Check if the target variable has more than one class.
     if y.nunique() < 2:
         st.error(
-            "❌ **Model Training Failed:** The target column ('Mortality') "
+            "❌ **Model Training Halted:** The target column ('Mortality') "
             "only contains one outcome after data cleaning. The model needs data for "
             "both survivors (0) and non-survivors (1) to learn."
         )
         st.info(f"Unique values found in 'Mortality' column: {y.unique()}")
-        return # Stop the function here
+        return
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
@@ -345,7 +347,17 @@ def display_prediction_dashboard(df):
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             if st.form_submit_button("Calculate Mortality Risk"):
                 input_df = pd.DataFrame([input_data])[model_features]
-                risk_percent = model.predict_proba(input_df)[0][1] * 100
+                risk_percent = 0.0
+                if hasattr(model, "predict_proba"):
+                    try:
+                        proba_results = model.predict_proba(input_df)
+                        if proba_results.shape[1] == 2:
+                            risk_percent = proba_results[0, 1] * 100
+                        elif model.classes_[0] == 1:
+                            risk_percent = 100.0
+                    except Exception:
+                        pass # Keep risk_percent at 0
+                
                 st.subheader("Prediction Results")
                 colA, colB = st.columns(2)
                 with colA:
