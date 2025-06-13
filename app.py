@@ -507,14 +507,14 @@ def display_prediction_dashboard(df):
                         st.success("🟢 LOW RISK", icon="✅")
                         st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
 
-# --- NEW: Wrapper function for the main application ---
+# --- Wrapper function for the main application ---
 def run_dashboard():
     """
     This function contains the original application logic.
     It's called after the password has been verified.
     """
-    # --- ADDED: Logo in the sidebar ---
-    st.sidebar.image("https://www.unprme.org/the-american-university-of-beirut/", use_column_width=True)
+    # ADDED: Logo in the sidebar
+    st.sidebar.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", use_column_width=True)
     
     st.sidebar.title("🩺 Sepsis Analytics Suite")
 
@@ -534,10 +534,10 @@ def run_dashboard():
     else:
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
+        st.image("https://www.unprme.org/the-american-university-of-beirut/", width=400)
 
 
-# --- NEW: Main function to handle password protection ---
+# --- Main function to handle password protection ---
 def main():
     """
     Main function to run the Streamlit app.
@@ -565,7 +565,8 @@ def main():
                 if password_attempt == CORRECT_PASSWORD:
                     st.session_state.password_correct = True
                     # Rerun the script to immediately reflect the state change
-                    st.experimental_rerun()
+                    # FIXED: Replaced st.experimental_rerun() with st.rerun()
+                    st.rerun()
                 else:
                     st.error("😕 The password you entered is incorrect. Please try again.")
     # If the password is correct, run the main dashboard application
