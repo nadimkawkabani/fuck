@@ -172,27 +172,28 @@ def display_eda_dashboard(df):
              if selected_feature in filtered_df.columns and 'Mortality' in filtered_df.columns:
                 plot_interactive_distribution(filtered_df, selected_feature, 'Mortality')
         else: st.warning("No vital sign or lab columns found.")
-    with tab3:
-        st.header("Risk Factors & Comorbidities Analysis")
-        if comorbidity_cols and 'Mortality' in filtered_df.columns:
-            st.subheader("Comorbidity Rate per 100,000 Patients")
-            total_patients = len(filtered_df)
-            if total_patients > 0:
-                comorbidity_counts = filtered_df[comorbidity_cols].sum()
-                comorbidity_rates = (comorbidity_counts / total_patients) * 100000
-                comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
-                fig = px.bar(
-                    comorbidity_rates,
-                    orientation='h',
-                    title='Comorbidity Rate per 100,000 Patients',
-                    labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
-                    text=comorbidity_rates.round(1)
-                fig.update_traces(textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No patient data to calculate rates.")
+   with tab3:
+    st.header("Risk Factors & Comorbidities Analysis")
+    if comorbidity_cols and 'Mortality' in filtered_df.columns:
+        st.subheader("Comorbidity Rate per 100,000 Patients")
+        total_patients = len(filtered_df)
+        if total_patients > 0:
+            comorbidity_counts = filtered_df[comorbidity_cols].sum()
+            comorbidity_rates = (comorbidity_counts / total_patients) * 100000
+            comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
+            fig = px.bar(
+                comorbidity_rates,
+                orientation='h',
+                title='Comorbidity Rate per 100,000 Patients',
+                labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
+                text=comorbidity_rates.round(1)  # This was missing a comma
+            )
+            fig.update_traces(textposition='outside')
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Comorbidity or Mortality columns not found.")
+            st.warning("No patient data to calculate rates.")
+    else:
+        st.warning("Comorbidity or Mortality columns not found.")
     with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col]) and filtered_df[col].nunique() > 1]
