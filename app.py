@@ -253,7 +253,6 @@ def display_prediction_dashboard(df):
         st.error("❌ No data available for model training after handling missing values.")
         return
 
-    # --- FIX: Define X and y from the refined feature list ---
     X = df_model[available_features]
     y = df_model[target]
 
@@ -261,7 +260,6 @@ def display_prediction_dashboard(df):
         st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
         return
 
-    # --- FIX: Split the data AFTER defining the final X and y ---
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
@@ -292,9 +290,19 @@ def display_prediction_dashboard(df):
                 st.session_state.model_details = {"model": model, "model_type": model_type, "features": X_train.columns.tolist()}
                 st.success(f"✅ {model_type} model trained successfully!")
 
-    if st.session_state.model_details["model"] is None:
+    # --- THIS IS THE FIX ---
+    # Check if a model exists in the session state. If it does, ensure it's valid for the current feature set.
+    if st.session_state.model_details["model"] is not None:
+        # Check if the features of the loaded model match the current features.
+        model_features_list = st.session_state.model_details.get("features")
+        current_features_list = X.columns.tolist()
+        if set(model_features_list) != set(current_features_list):
+            st.warning("The feature set has changed due to a code update. Please retrain the model.")
+            st.session_state.model_details = {"model": None, "model_type": None, "features": None}
+            st.stop()
+    else:
         st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
-        return
+        st.stop()
 
     model = st.session_state.model_details["model"]
     model_type = st.session_state.model_details["model_type"]
