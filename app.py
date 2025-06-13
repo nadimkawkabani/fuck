@@ -37,7 +37,7 @@ if 'model_details' not in st.session_state:
 def load_data():
     # URL was throwing a 404, using a known working sepsis dataset for demonstration
     # Replace with your actual working URL if it becomes available again.
-    url = "https://raw.githubusercontent.com/plotly/datasets/master/sepsis-clinical-data.csv"
+    url = "https://raw.githubusercontent.com/plotly/datasets/master/ICU_Sepsis.csv"
     try:
         df = pd.read_csv(url)
         if df.empty:
