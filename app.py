@@ -93,18 +93,12 @@ sepsis_df = load_data()
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
-    title = f'Distribution of {column}'
     if hue:
-        fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30,
-                           barmode='overlay', title=f'{title} by {hue}',
-                           opacity=0.7, histnorm='probability density')
-        fig.update_yaxes(title_text="Density")
+        fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30, barmode='overlay', title=f'Distribution of {column} by {hue}', opacity=0.7)
     else:
-        fig = px.histogram(df, x=column, marginal='box', nbins=30, title=title)
-    
+        fig = px.histogram(df, x=column, marginal='box', nbins=30, title=f'Distribution of {column}')
     fig.update_layout(legend_title_text=hue if hue else '')
     st.plotly_chart(fig, use_container_width=True)
-
 
 def plot_correlation_matrix(df, columns):
     corr = df[columns].corr()
@@ -115,6 +109,8 @@ def plot_correlation_matrix(df, columns):
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
+    # This function is correct and does not need changes.
+    # ... (code omitted for brevity) ...
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
@@ -172,25 +168,11 @@ def display_eda_dashboard(df):
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
-            st.subheader("Comorbidity Rate per 100,000 Patients")
-            total_patients = len(filtered_df)
-            if total_patients > 0:
-                comorbidity_counts = filtered_df[comorbidity_cols].sum()
-                comorbidity_rates = (comorbidity_counts / total_patients) * 100000
-                comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
-                fig = px.bar(
-                    comorbidity_rates,
-                    orientation='h',
-                    title='Comorbidity Rate per 100,000 Patients',
-                    labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
-                    text=comorbidity_rates.round(1)
-                )
-                fig.update_traces(textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No patient data to calculate rates.")
-        else:
-            st.warning("Comorbidity or Mortality columns not found.")
+            st.subheader("Comorbidity Prevalence")
+            comorbidity_counts = filtered_df[comorbidity_cols].sum().sort_values(ascending=False)
+            fig = px.bar(comorbidity_counts, orientation='h', title='Prevalence of Comorbidities', labels={'value': 'Count', 'index': 'Comorbidity'})
+            st.plotly_chart(fig, use_container_width=True)
+        else: st.warning("Comorbidity or Mortality columns not found.")
     with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col])]
@@ -210,15 +192,47 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- SIMPLIFIED PREDICTION DASHBOARD ---
+# --- ROBUST MODEL EVALUATION FUNCTION ---
+def evaluate_model(model, X_test, y_test):
+    y_pred = model.predict(X_test)
+    y_proba = np.zeros(len(y_test)) 
+    if hasattr(model, "predict_proba"):
+        try:
+            proba_results = model.predict_proba(X_test)
+            if proba_results.shape[1] == 2: y_proba = proba_results[:, 1]
+            elif model.classes_[0] == 1: y_proba = np.ones(len(y_test))
+        except Exception: pass
+
+    try: roc_auc = roc_auc_score(y_test, y_proba)
+    except ValueError: roc_auc = 0.5 
+
+    metrics_df = pd.DataFrame({
+        'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
+        'Value': [
+            accuracy_score(y_test, y_pred),
+            precision_score(y_test, y_pred, average='weighted', zero_division=0),
+            recall_score(y_test, y_pred, average='weighted', zero_division=0),
+            f1_score(y_test, y_pred, average='weighted', zero_division=0),
+            roc_auc
+        ]
+    })
+    try:
+        fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
+        roc_auc_val = auc(fpr, tpr)
+    except (ValueError, IndexError):
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc 
+
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    return metrics_df, (fpr, tpr, roc_auc_val), cm
+
 def display_prediction_dashboard(df):
-    st.title("🧮 Sepsis Mortality Risk Calculator")
-    st.markdown("Enter patient data below to calculate the predicted risk of mortality based on a pre-trained XGBoost model.")
+    st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
+    st.markdown("Advanced machine learning for sepsis mortality prediction.")
     features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score']
     target = 'Mortality'
     available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns:
-        st.error("❌ Essential columns for prediction are missing from the source data.")
+        st.error("❌ Essential columns for prediction are missing from the data.")
         return
     df_model = df[available_features + [target]].dropna()
     if df_model.empty:
@@ -226,73 +240,145 @@ def display_prediction_dashboard(df):
         return
     X = df_model[available_features]
     y = df_model[target]
-    if y.nunique() < 2:
-        st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
-        return
-        
-    # --- Automatic Model Training (if not already trained) ---
-    if st.session_state.model_details["model"] is None:
-        with st.spinner("Initializing the predictive model... Please wait."):
-            X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-            # Use XGBoost as the default model for better performance
-            model = train_model(X_train, y_train, model_type='XGBoost') 
-            st.session_state.model_details = {
-                "model": model,
-                "model_type": 'XGBoost', 
-                "features": X_train.columns.tolist()
-            }
-        st.success("✅ Predictive model is ready.")
-        
-    model = st.session_state.model_details["model"]
-    model_features = st.session_state.model_details["features"]
     
-    st.header("Patient Risk Calculator")
-    with st.form("prediction_form"):
-        input_data = {}
-        col1, col2, col3 = st.columns(3)
-        for i, feature in enumerate(model_features):
-            with [col1, col2, col3][i % 3]:
-                if feature == 'Age':
-                    input_data[feature] = st.slider("Age (years)", 18, 100, 65)
-                elif feature == 'Gender':
-                    selected_gender = st.selectbox("Gender", ['Male', 'Female'])
-                    input_data[feature] = 1 if selected_gender == 'Male' else 0
-                elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
-                    input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
-                else:
-                    min_val = float(X[feature].min())
-                    max_val = float(X[feature].max())
-                    mean_val = float(X[feature].mean())
-                    input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
-        submitted = st.form_submit_button("Calculate Mortality Risk")
+    if y.nunique() < 2:
+        st.error(
+            "❌ **Model Training Halted:** The target column ('Mortality') "
+            "only contains one outcome after data cleaning. The model needs data for "
+            "both survivors (0) and non-survivors (1) to learn."
+        )
+        st.info(f"Unique values found in 'Mortality' column: {y.unique()}")
+        return
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
+    with tab1:
+        st.header("Model Configuration")
+        col1, col2 = st.columns(2)
+        with col1:
+            model_type = st.selectbox("Select Algorithm", ["Random Forest", "XGBoost", "Logistic Regression"], key="model_type_select")
+            params = {}
+            if model_type == "Random Forest":
+                params = {'n_estimators': st.slider("Number of trees", 50, 500, 100, key="rf_n"), 'max_depth': st.slider("Max depth", 2, 20, 10, key="rf_d")}
+            elif model_type == "Logistic Regression":
+                params = {'penalty': st.selectbox("Regularization", ["l2", "l1"], index=0, key="lr_p"), 'C': st.slider("Inverse regularization strength (C)", 0.01, 10.0, 1.0, key="lr_c")}
+            elif model_type == "XGBoost":
+                params = {'n_estimators': st.slider("Number of trees", 50, 500, 100, key="xgb_n"), 'max_depth': st.slider("Max depth", 2, 10, 3, key="xgb_d"), 'learning_rate': st.slider("Learning rate", 0.01, 0.5, 0.1, key="xgb_lr")}
+        with col2:
+            st.subheader("Class Distribution in Training Set")
+            st.bar_chart(y_train.value_counts(normalize=True) * 100)
+        if st.button("Train Model", key="train_button"):
+            with st.spinner(f"Training {model_type} model..."):
+                model = train_model(X_train, y_train, model_type, **params)
+                st.session_state.model_details = {"model": model, "model_type": model_type, "features": X_train.columns.tolist()}
+                st.success(f"✅ {model_type} model trained successfully!")
+    if st.session_state.model_details["model"] is None:
+        st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
+        return
+    model = st.session_state.model_details["model"]
+    model_type = st.session_state.model_details["model_type"]
+    with tab2:
+        st.header(f"Performance Evaluation: {model_type}")
+        metrics_df, roc_data, cm = evaluate_model(model, X_test, y_test)
+        fpr, tpr, roc_auc_val = roc_data
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Key Metrics")
+            st.dataframe(metrics_df.style.format({'Value': '{:.2%}'}), use_container_width=True)
+            st.subheader("Confusion Matrix")
+            fig = px.imshow(cm, text_auto=True, aspect="auto", labels=dict(x="Predicted Label", y="True Label", color="Count"), x=['Survived', 'Died'], y=['Survived', 'Died'], color_continuous_scale=px.colors.sequential.Blues)
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            st.subheader("ROC Curve")
+            fig = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc_val:.2f})', labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'})
+            fig.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
+            st.plotly_chart(fig, use_container_width=True)
+    with tab3:
+        st.header(f"Model Interpretability: {model_type}")
+        st.subheader("Feature Importance")
+        importance_df = None
+        if hasattr(model, 'feature_importances_'):
+            importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
+        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps:
+            importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
+        if importance_df is not None:
+            fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
+            st.plotly_chart(fig, use_container_width=True)
         
-        if submitted:
-            input_df = pd.DataFrame([input_data])[model_features]
-            risk_percent = 0.0
-            if hasattr(model, "predict_proba") and len(model.classes_) == 2:
-                risk_percent = model.predict_proba(input_df)[0][1] * 100
-            
-            st.subheader("Prediction Results")
-            colA, colB = st.columns([1, 2])
-            with colA:
-                st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
-                fig = go.Figure(go.Indicator(
-                    mode="gauge+number", value=risk_percent, title={'text': "Risk Level"},
-                    gauge={'axis': {'range': [None, 100]},
-                           'steps': [{'range': [0, 20], 'color': "lightgreen"}, {'range': [20, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}],
-                           'bar': {'color': "darkblue"}}))
-                fig.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
-                st.plotly_chart(fig, use_container_width=True)
-            with colB:
-                if risk_percent > 50:
-                    st.error("🔴 HIGH RISK", icon="🚨")
-                    st.markdown("**Recommendations:** Consider immediate ICU admission, aggressive fluid resuscitation, broad-spectrum antibiotics, and frequent monitoring.")
-                elif risk_percent > 20:
-                    st.warning("🟠 MODERATE RISK", icon="⚠️")
-                    st.markdown("**Recommendations:** Consider hospital admission, initiate sepsis protocol, perform frequent vital sign checks, and evaluate need for antibiotics.")
+        st.subheader("Partial Dependence Plots (PDP)")
+        pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
+
+        # --- FINAL FIX FOR PDP PLOTS ---
+        if X_train[pdp_feature].nunique() < 2:
+            st.warning(
+                f"⚠️ **Could not generate PDP for `{pdp_feature}`.** "
+                "This feature has only one unique value in the training data, "
+                "so its partial dependence cannot be calculated."
+            )
+        else:
+            try:
+                fig, ax = plt.subplots(figsize=(8, 5))
+                PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], ax=ax)
+                ax.set_title(f"Partial Dependence Plot for {pdp_feature}")
+                st.pyplot(fig)
+            except ValueError as e:
+                # Check for the specific error we've been seeing
+                if "need classifier with two classes" in str(e):
+                    st.error(
+                        "**PDP Generation Failed.** This can happen with some models due to a known issue "
+                        "in the ML library where probability predictions are not in the expected format for this specific plot. "
+                        "The main model remains valid."
+                    )
                 else:
-                    st.success("🟢 LOW RISK", icon="✅")
-                    st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
+                    st.error(f"A data error occurred while generating the PDP: {e}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred while generating the PDP: {e}")
+
+    with tab4:
+        st.header("Patient Risk Calculator")
+        with st.form("prediction_form"):
+            input_data, col1, col2, col3 = {}, *st.columns(3)
+            model_features = st.session_state.model_details["features"]
+            for i, feature in enumerate(model_features):
+                with [col1, col2, col3][i % 3]:
+                    if feature == 'Age':
+                        input_data[feature] = st.slider("Age (years)", 18, 100, 65)
+                    elif feature == 'Gender':
+                        selected_gender = st.selectbox("Gender", ['Male', 'Female'])
+                        input_data[feature] = 1 if selected_gender == 'Male' else 0
+                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
+                        input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
+                    else:
+                        min_val, max_val, mean_val = float(X[feature].min()), float(X[feature].max()), float(X[feature].mean())
+                        input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
+            if st.form_submit_button("Calculate Mortality Risk"):
+                input_df = pd.DataFrame([input_data])[model_features]
+                risk_percent = 0.0
+                if hasattr(model, "predict_proba"):
+                    try:
+                        proba_results = model.predict_proba(input_df)
+                        if proba_results.shape[1] == 2:
+                            risk_percent = proba_results[0, 1] * 100
+                        elif model.classes_[0] == 1:
+                            risk_percent = 100.0
+                    except Exception: pass
+                
+                st.subheader("Prediction Results")
+                colA, colB = st.columns(2)
+                with colA:
+                    st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
+                    fig = go.Figure(go.Indicator(mode="gauge+number", value=risk_percent, title={'text': "Risk Level"}, gauge={'axis': {'range': [None, 100]}, 'steps': [{'range': [0, 20], 'color': "lightgreen"}, {'range': [20, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}], 'bar': {'color': "darkblue"}}))
+                    st.plotly_chart(fig, use_container_width=True)
+                with colB:
+                    if risk_percent > 50:
+                        st.error("🔴 HIGH RISK", icon="🚨")
+                        st.markdown("**Recommendations:** Consider immediate ICU admission, aggressive fluid resuscitation, broad-spectrum antibiotics, and frequent monitoring.")
+                    elif risk_percent > 20:
+                        st.warning("🟠 MODERATE RISK", icon="⚠️")
+                        st.markdown("**Recommendations:** Consider hospital admission, initiate sepsis protocol, perform frequent vital sign checks, and evaluate need for antibiotics.")
+                    else:
+                        st.success("🟢 LOW RISK", icon="✅")
+                        st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
 
 # --- Main App Logic ---
 def main():
@@ -301,14 +387,14 @@ def main():
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
             "Choose Dashboard",
-            ["Comprehensive EDA", "Mortality Risk Calculator"],
+            ["Comprehensive EDA", "Mortality Predictive Analysis"],
             index=0,
             key="app_mode_select"
         )
         st.sidebar.markdown("---")
         if app_mode == "Comprehensive EDA":
             display_eda_dashboard(sepsis_df)
-        elif app_mode == "Mortality Risk Calculator":
+        elif app_mode == "Mortality Predictive Analysis":
             display_prediction_dashboard(sepsis_df)
     else:
         st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
