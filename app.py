@@ -505,67 +505,55 @@ def display_prediction_dashboard(df):
                         st.success("🟢 LOW RISK", icon="✅")
                         st.markdown("**Recommendations:** Continue observation, consider outpatient follow-up, and educate patient on when to seek further care.")
 
-# --- NEW AND IMPROVED PASSWORD AND MAIN APP LOGIC ---
 
-def check_password():
-    """Returns `True` if the user has entered the correct password."""
-    
-    # Check if the password is correct in the session state.
-    if st.session_state.get("password_correct", False):
-        return True
+# --- Main Application Execution Logic ---
 
-    # Show the login form.
-    st.title("🔐 Secure Access")
-    st.write("Please enter the password to access the Sepsis Analytics Dashboard.")
-    
-    # Use a form to capture the password.
-    with st.form("password_form"):
-        password_attempt = st.text_input("Password", type="password")
-        submit_button = st.form_submit_button("Login")
+def main():
+    """
+    Main function to run the app. It handles the password check on every run
+    and decides whether to show the dashboard or the lock screen.
+    """
 
-        if submit_button:
-            # Check if the entered password matches the hardcoded password.
-            # I've removed the dependency on st.secrets for simplicity and to fix the error.
-            if password_attempt == "sepsis_dashboard":
-                st.session_state["password_correct"] = True
-                st.rerun()
-            else:
-                st.error("😕 The password you entered is incorrect.")
-    
-    return False
+    # =========================================================================
+    # **Where to change the password:**
+    # Change the password string in the line below.
+    # =========================================================================
+    CORRECT_PASSWORD = "msba"
 
-def run_dashboard():
-    """This function contains the original application logic and the logo."""
-    
-    # ADDED: Logo and Logout button in the sidebar.
-    st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
-    if st.sidebar.button("Logout"):
-        st.session_state["password_correct"] = False
-        st.rerun()
+    # --- Logo and Password Input in Sidebar ---
+    st.sidebar.image("https://www.unprme.org/the-american-university-of-beirut/", use_column_width=True)
+    password_attempt = st.sidebar.text_input("Enter Password to View Dashboard", type="password")
 
-    st.sidebar.title("🩺 Sepsis Analytics Suite")
+    # --- Check Password and Display Corresponding View ---
+    if password_attempt == CORRECT_PASSWORD:
+        # If password is correct, build the main dashboard
+        sepsis_df = load_data()
+        st.sidebar.title("🩺 Sepsis Analytics Suite")
 
-    if sepsis_df is not None:
-        st.sidebar.markdown("---")
-        app_mode = st.sidebar.selectbox(
-            "Choose Dashboard",
-            ["Mortality Predictive Analysis", "Comprehensive EDA"],
-            index=0,
-            key="app_mode_select"
-        )
-        st.sidebar.markdown("---")
-        if app_mode == "Comprehensive EDA":
-            display_eda_dashboard(sepsis_df)
-        elif app_mode == "Mortality Predictive Analysis":
-            display_prediction_dashboard(sepsis_df)
+        if sepsis_df is not None:
+            st.sidebar.markdown("---")
+            app_mode = st.sidebar.selectbox(
+                "Choose Dashboard",
+                ["Mortality Predictive Analysis", "Comprehensive EDA"],
+                index=0,
+                key="app_mode_select"
+            )
+            st.sidebar.markdown("---")
+            if app_mode == "Comprehensive EDA":
+                display_eda_dashboard(sepsis_df)
+            elif app_mode == "Mortality Predictive Analysis":
+                display_prediction_dashboard(sepsis_df)
+        else:
+            st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
+            st.error("🚨 Could not load the dataset. Please ensure the URL is correct.")
+
     else:
-        st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
-        st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
+        # If password is not correct, show a locked screen
+        st.title("🔐 Access Denied")
+        st.write("---")
+        st.warning("Please enter the correct password in the sidebar to view the dashboard.")
+        st.image("https://i.imgur.com/v2SPiTz.png", width=200) # A generic lock icon
 
 
-# --- Main App Execution ---
-sepsis_df = load_data()
-
-if check_password():
-    run_dashboard()
+if __name__ == "__main__":
+    main()
