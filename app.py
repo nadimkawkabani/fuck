@@ -61,8 +61,9 @@ def load_data():
             elif pd.api.types.is_numeric_dtype(df['Gender']):
                 df['Gender'] = df['Gender'].replace(2, 0)
 
+        # --- FIX: 'Mortality' is removed from this text-based mapping ---
+        # It is already numeric (1s and 0s) in the source file.
         mappings = {
-            'Mortality': {'mortal': 1},
             'Comorbidity': {'var': 1},
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1}
         }
@@ -70,6 +71,7 @@ def load_data():
             if col in df.columns:
                 df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
 
+        # This loop will now correctly handle the numeric 'Mortality' column
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -191,22 +193,19 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- FULLY ROBUST MODEL EVALUATION FUNCTION ---
+# --- ROBUST MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
-    
-    # Defensive block for predict_proba
-    y_proba = None
-    if hasattr(model, "predict_proba") and len(model.classes_) == 2:
-        y_proba = model.predict_proba(X_test)[:, 1]
-    else:
-        y_proba = y_pred.astype(float) # Fallback for single-class models
+    y_proba = np.zeros(len(y_test)) 
+    if hasattr(model, "predict_proba"):
+        try:
+            proba_results = model.predict_proba(X_test)
+            if proba_results.shape[1] == 2: y_proba = proba_results[:, 1]
+            elif model.classes_[0] == 1: y_proba = np.ones(len(y_test))
+        except Exception: pass
 
-    # Defensive Metric Calculation
-    try:
-        roc_auc = roc_auc_score(y_test, y_proba)
-    except ValueError:
-        roc_auc = 0.5 # Default for undefined cases
+    try: roc_auc = roc_auc_score(y_test, y_proba)
+    except ValueError: roc_auc = 0.5 
 
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
@@ -218,17 +217,13 @@ def evaluate_model(model, X_test, y_test):
             roc_auc
         ]
     })
-
-    # Defensive ROC Curve Generation
     try:
         fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
         roc_auc_val = auc(fpr, tpr)
     except (ValueError, IndexError):
-        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc # Fallback ROC
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc 
 
-    # Defensive Confusion Matrix Generation - force 2x2
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
-
     return metrics_df, (fpr, tpr, roc_auc_val), cm
 
 def display_prediction_dashboard(df):
@@ -247,7 +242,6 @@ def display_prediction_dashboard(df):
     X = df_model[available_features]
     y = df_model[target]
     
-    # CRITICAL CHECK: Ensure target variable has two classes before proceeding.
     if y.nunique() < 2:
         st.error(
             "❌ **Model Training Halted:** The target column ('Mortality') "
@@ -339,11 +333,15 @@ def display_prediction_dashboard(df):
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             if st.form_submit_button("Calculate Mortality Risk"):
                 input_df = pd.DataFrame([input_data])[model_features]
-                risk_percent = 0
-                if hasattr(model, "predict_proba") and len(model.classes_) == 2:
-                    risk_percent = model.predict_proba(input_df)[0][1] * 100
-                else:
-                    st.warning("Model could not predict probability; it may have been trained on a single outcome.")
+                risk_percent = 0.0
+                if hasattr(model, "predict_proba"):
+                    try:
+                        proba_results = model.predict_proba(input_df)
+                        if proba_results.shape[1] == 2:
+                            risk_percent = proba_results[0, 1] * 100
+                        elif model.classes_[0] == 1:
+                            risk_percent = 100.0
+                    except Exception: pass
                 
                 st.subheader("Prediction Results")
                 colA, colB = st.columns(2)
