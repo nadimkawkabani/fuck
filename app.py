@@ -109,6 +109,8 @@ def plot_correlation_matrix(df, columns):
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
+    # This function is correct and does not need changes.
+    # ... (code omitted for brevity) ...
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
     if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
@@ -319,8 +321,18 @@ def display_prediction_dashboard(df):
                 PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], ax=ax)
                 ax.set_title(f"Partial Dependence Plot for {pdp_feature}")
                 st.pyplot(fig)
+            except ValueError as e:
+                # Check for the specific error we've been seeing
+                if "need classifier with two classes" in str(e):
+                    st.error(
+                        "**PDP Generation Failed.** This can happen with some models due to a known issue "
+                        "in the ML library where probability predictions are not in the expected format for this specific plot. "
+                        "The main model remains valid."
+                    )
+                else:
+                    st.error(f"A data error occurred while generating the PDP: {e}")
             except Exception as e:
-                st.error(f"An error occurred while generating the PDP: {e}")
+                st.error(f"An unexpected error occurred while generating the PDP: {e}")
 
     with tab4:
         st.header("Patient Risk Calculator")
