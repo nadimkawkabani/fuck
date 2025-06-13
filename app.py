@@ -93,12 +93,21 @@ sepsis_df = load_data()
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
+    title = f'Distribution of {column}'
     if hue:
-        fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30, barmode='overlay', title=f'Distribution of {column} by {hue}', opacity=0.7)
+        # When comparing groups, density normalization is better than raw counts.
+        # This effectively turns the y-axis into a rate/proportion.
+        fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30,
+                           barmode='overlay', title=f'{title} by {hue}',
+                           opacity=0.7, histnorm='probability density')
+        fig.update_yaxes(title_text="Density") # Label the y-axis appropriately
     else:
-        fig = px.histogram(df, x=column, marginal='box', nbins=30, title=f'Distribution of {column}')
+        # For a single distribution, raw count is intuitive and standard.
+        fig = px.histogram(df, x=column, marginal='box', nbins=30, title=title)
+    
     fig.update_layout(legend_title_text=hue if hue else '')
     st.plotly_chart(fig, use_container_width=True)
+
 
 def plot_correlation_matrix(df, columns):
     corr = df[columns].corr()
