@@ -521,7 +521,7 @@ def main():
     CORRECT_PASSWORD = "msba"
 
     # --- Logo and Password Input in Sidebar ---
-    st.sidebar.image("https://www.unprme.org/the-american-university-of-beirut/", use_column_width=True)
+    st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
     password_attempt = st.sidebar.text_input("Enter Password to View Dashboard", type="password")
 
     # --- Check Password and Display Corresponding View ---
