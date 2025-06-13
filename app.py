@@ -191,23 +191,41 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# CORRECTED: Added zero_division=0 to prevent crashes
+# --- CORRECTED MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
+
+    # Handle edge case where y_test might have only one class, which would crash roc_auc_score
+    try:
+        roc_auc = roc_auc_score(y_test, y_proba)
+    except ValueError:
+        roc_auc = 0.5 # A safe default for an uninformative classifier
+
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
         'Value': [
             accuracy_score(y_test, y_pred),
-            precision_score(y_test, y_pred, zero_division=0),
-            recall_score(y_test, y_pred, zero_division=0),
-            f1_score(y_test, y_pred, zero_division=0),
-            roc_auc_score(y_test, y_proba)
+            # FIX: Use average='weighted' to prevent crashing when a class is not predicted.
+            precision_score(y_test, y_pred, average='weighted', zero_division=0),
+            recall_score(y_test, y_pred, average='weighted', zero_division=0),
+            f1_score(y_test, y_pred, average='weighted', zero_division=0),
+            roc_auc
         ]
     })
-    fpr, tpr, _ = roc_curve(y_test, y_proba)
-    roc_auc_val = auc(fpr, tpr)
-    return metrics_df, (fpr, tpr, roc_auc_val), confusion_matrix(y_test, y_pred)
+
+    # Handle roc_curve failing if only one class is in y_test
+    try:
+        fpr, tpr, _ = roc_curve(y_test, y_proba)
+        roc_auc_val = auc(fpr, tpr)
+    except ValueError:
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5 # Dummy ROC curve
+
+    # Ensure confusion matrix has labels for both classes to avoid plotting issues
+    labels = sorted(np.unique(y_test))
+    cm = confusion_matrix(y_test, y_pred, labels=labels)
+
+    return metrics_df, (fpr, tpr, roc_auc_val), cm
 
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
@@ -271,13 +289,15 @@ def display_prediction_dashboard(df):
         st.header(f"Model Interpretability: {model_type}")
         st.subheader("Feature Importance")
         importance_df = None
-        if model_type in ["Random Forest", "XGBoost"]:
+        if hasattr(model, 'feature_importances_'): # For RF, XGB
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
-        elif model_type == "Logistic Regression":
+        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps: # For LR Pipeline
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
+        
         if importance_df is not None:
             fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
             st.plotly_chart(fig, use_container_width=True)
+
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
         try:
