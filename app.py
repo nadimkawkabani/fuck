@@ -12,9 +12,10 @@ from xgboost import XGBClassifier
 from sklearn.metrics import (accuracy_score, confusion_matrix,
                            precision_score, recall_score, f1_score,
                            roc_auc_score, roc_curve, auc)
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
+from datetime import datetime
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -22,64 +23,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# --- Password Protection ---
-def check_password():
-    """Returns `True` if the user had the correct password."""
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if "password" in st.session_state:
-            # Check if secrets file exists and has password
-            if "password" in st.secrets:
-                if st.session_state["password"] == st.secrets["password"]:
-                    st.session_state["password_correct"] = True
-                    del st.session_state["password"]
-                else:
-                    st.session_state["password_correct"] = False
-            else:
-                # Default password if secrets file doesn't exist
-                default_password = "msba"  # CHANGE THIS IN PRODUCTION
-                if st.session_state["password"] == default_password:
-                    st.session_state["password_correct"] = True
-                    del st.session_state["password"]
-                else:
-                    st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show login page with logo
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=300)
-        st.title("Sepsis Clinical Analytics")
-        st.markdown("""
-        <style>
-            .login-box {
-                max-width: 400px;
-                padding: 2rem;
-                margin: 0 auto;
-                border-radius: 10px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }
-        </style>
-        <div class="login-box">
-        """, unsafe_allow_html=True)
-        
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        if "password" not in st.secrets:
-            st.warning("Using default password. For production, create a secrets.toml file.")
-        else:
-            st.info("Please enter the password to access the dashboard")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        return True
 
 # --- Session State Initialization ---
 if 'model_details' not in st.session_state:
@@ -114,9 +57,9 @@ def load_data():
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
             
-        # Convert target to binary if needed
+        # Clean and convert target variable to binary (0/1)
         if df['Mortality'].nunique() > 2:
-            st.warning("Mortality column has more than 2 unique values. Converting to binary (0/1).")
+            st.warning("Mortality column has more than 2 unique values. Converting to binary (0/1) where 1 indicates mortality.")
             df['Mortality'] = (df['Mortality'] > 0).astype(int)
             
         if 'Gender' in df.columns:
@@ -154,6 +97,8 @@ def load_data():
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
 
+sepsis_df = load_data()
+
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
     title = f'Distribution of {column}'
@@ -173,72 +118,158 @@ def plot_correlation_matrix(df, columns):
     fig = px.imshow(corr, text_auto=True, aspect='auto', color_continuous_scale='RdBu_r', title='Feature Correlation Matrix')
     st.plotly_chart(fig, use_container_width=True)
 
-# --- ML Model Functions ---
-@st.cache_resource
-def train_model(_X_train, _y_train, model_type='XGBoost', **params):
-    if model_type == 'XGBoost':
-        model = XGBClassifier(objective='binary:logistic', 
-                            eval_metric='logloss', 
-                            use_label_encoder=False, 
-                            random_state=42, 
-                            **params)
-        # Set feature names explicitly
-        model.get_booster().feature_names = list(_X_train.columns)
-    elif model_type == 'Logistic Regression':
-        model = make_pipeline(StandardScaler(), 
-                            LogisticRegression(class_weight='balanced', 
-                                            random_state=42, 
-                                            max_iter=1000, 
-                                            solver='liblinear', 
-                                            **params))
-    else: # Default to Random Forest
-        model = RandomForestClassifier(class_weight='balanced', 
-                                    random_state=42, 
-                                    n_jobs=-1, 
-                                    **params)
-    model.fit(_X_train, _y_train)
-    return model
-
-# --- Model Evaluation Function ---
-def evaluate_model(model, X_test, y_test):
-    try:
-        # Ensure feature names match for XGBoost
-        if hasattr(model, 'get_booster'):
-            X_test.columns = model.get_booster().feature_names
-        
-        y_pred = model.predict(X_test)
-        y_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else np.zeros(len(y_test))
-        
-        metrics_df = pd.DataFrame({
-            'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
-            'Value': [
-                accuracy_score(y_test, y_pred),
-                precision_score(y_test, y_pred, average='weighted', zero_division=0),
-                recall_score(y_test, y_pred, average='weighted', zero_division=0),
-                f1_score(y_test, y_pred, average='weighted', zero_division=0),
-                roc_auc_score(y_test, y_proba) if len(np.unique(y_test)) > 1 else 0.5
-            ]
-        })
-        
-        fpr, tpr, _ = roc_curve(y_test, y_proba)
-        roc_auc_val = auc(fpr, tpr)
-        cm = confusion_matrix(y_test, y_pred)
-        
-        return metrics_df, (fpr, tpr, roc_auc_val), cm
-        
-    except Exception as e:
-        st.error(f"Evaluation failed: {str(e)}")
-        return pd.DataFrame(), ([0, 1], [0, 1], 0.5), np.zeros((2, 2))
-
 # --- EDA Dashboard Function ---
 def display_eda_dashboard(df):
     st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
-    
-    # ... [rest of your EDA dashboard code remains the same]
-    # (Include all your existing EDA visualization code here)
+    st.sidebar.header("🔍 EDA Filters")
+    filtered_df = df.copy()
+    if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
+        age_options = list(df['Age_Group'].cat.categories)
+        selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
+        filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
+    if 'Gender' in df.columns:
+        selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
+        if selected_gender_str != 'All':
+            gender_code = 1 if selected_gender_str == 'Male' else 0
+            filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
+    if 'Mortality' in df.columns:
+        mortality_filter = st.sidebar.selectbox("Filter by Mortality Status", options=['All', 'Survived', 'Died'], index=0)
+        if mortality_filter != 'All':
+            mortality_code = 1 if mortality_filter == 'Died' else 0
+            filtered_df = filtered_df[filtered_df['Mortality'] == mortality_code]
+    if filtered_df.empty:
+        st.warning("⚠️ No data available for the selected filters.")
+        return
+    vital_cols = [col for col in ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation'] if col in df.columns]
+    lab_cols = [col for col in ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine'] if col in df.columns]
+    comorbidity_cols = [col for col in ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Others'] if col in df.columns]
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
+    with tab1:
+        st.header("Demographic Analysis")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Patient Age Distribution")
+            if 'Age' in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                plot_interactive_distribution(filtered_df, 'Age', 'Mortality')
+        with col2:
+            st.subheader("Gender Distribution")
+            if 'Gender' in filtered_df.columns:
+                gender_map = {1: 'Male', 0: 'Female'}
+                gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
+                fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
+                st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Age vs. Mortality")
+        if 'Age' in filtered_df.columns and 'Mortality' in filtered_df.columns:
+            fig = px.box(filtered_df, x='Mortality', y='Age', color='Mortality', points='all', title='Age Distribution by Mortality Status')
+            fig.update_xaxes(title_text='Mortality Status', tickvals=[0, 1], ticktext=['Survived', 'Died'])
+            st.plotly_chart(fig, use_container_width=True)
+    with tab2:
+        st.header("Vitals & Lab Results Analysis")
+        all_vitals_labs = vital_cols + lab_cols
+        if all_vitals_labs:
+             selected_feature = st.selectbox("Select Vital Sign or Lab Value to Visualize", options=all_vitals_labs)
+             if selected_feature in filtered_df.columns and 'Mortality' in filtered_df.columns:
+                plot_interactive_distribution(filtered_df, selected_feature, 'Mortality')
+        else: st.warning("No vital sign or lab columns found.")
+    with tab3:
+        st.header("Risk Factors & Comorbidities Analysis")
+        if comorbidity_cols and 'Mortality' in filtered_df.columns:
+            st.subheader("Comorbidity Rate per 100,000 Patients")
+            total_patients = len(filtered_df)
+            if total_patients > 0:
+                comorbidity_counts = filtered_df[comorbidity_cols].sum()
+                comorbidity_rates = (comorbidity_counts / total_patients) * 100000
+                comorbidity_rates = comorbidity_rates.sort_values(ascending=False)
+                fig = px.bar(
+                    comorbidity_rates,
+                    orientation='h',
+                    title='Comorbidity Rate per 100,000 Patients',
+                    labels={'value': 'Rate per 100,000', 'index': 'Comorbidity'},
+                    text=comorbidity_rates.round(1)
+                )
+                fig.update_traces(textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No patient data to calculate rates.")
+        else:
+            st.warning("Comorbidity or Mortality columns not found.")
+    with tab4:
+        st.header("Feature Correlations")
+        all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col]) and filtered_df[col].nunique() > 1]
+        if len(all_numeric_cols) > 1:
+            plot_correlation_matrix(filtered_df, all_numeric_cols)
+        else: st.warning("Not enough numeric columns with variance for correlation analysis.")
 
-# --- Prediction Dashboard Function ---
+# --- ML Model Functions ---
+@st.cache_resource
+def train_model(_X_train, _y_train, model_type='XGBoost', **params):
+    if model_type == 'XGBoost':
+        model = XGBClassifier(objective='binary:logistic', eval_metric='logloss', use_label_encoder=False, random_state=42, **params)
+    elif model_type == 'Logistic Regression':
+        model = make_pipeline(StandardScaler(), LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000, solver='liblinear', **params))
+    else: # Default to Random Forest
+        model = RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1, **params)
+    model.fit(_X_train, _y_train)
+    return model
+
+# --- ROBUST MODEL EVALUATION FUNCTION ---
+def evaluate_model(model, X_test, y_test):
+    y_pred = model.predict(X_test)
+    y_proba = np.zeros(len(y_test)) 
+    
+    if hasattr(model, "predict_proba"):
+        try:
+            proba_results = model.predict_proba(X_test)
+            if proba_results.shape[1] == 2: 
+                y_proba = proba_results[:, 1]
+            elif proba_results.shape[1] == 1:
+                y_proba = proba_results[:, 0]
+        except Exception as e:
+            st.warning(f"Could not get probability estimates: {e}")
+    
+    try: 
+        roc_auc = roc_auc_score(y_test, y_proba) if len(np.unique(y_test)) > 1 else 0.5
+    except ValueError: 
+        roc_auc = 0.5
+        
+    # Handle binary or multiclass metrics
+    if len(np.unique(y_test)) <= 2:
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        recall = recall_score(y_test, y_pred, zero_division=0)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
+    else:
+        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+    
+    metrics_df = pd.DataFrame({
+        'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
+        'Value': [
+            accuracy_score(y_test, y_pred),
+            precision,
+            recall,
+            f1,
+            roc_auc
+        ]
+    })
+    
+    # Handle ROC curve
+    try:
+        fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
+        roc_auc_val = auc(fpr, tpr)
+    except (ValueError, IndexError):
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5
+        
+    # Handle confusion matrix
+    try:
+        cm = confusion_matrix(y_test, y_pred)
+    except:
+        cm = np.zeros((2, 2))
+    
+    return metrics_df, (fpr, tpr, roc_auc_val), cm
+
+# --- FULL-FEATURED PREDICTION DASHBOARD ---
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Use this dashboard to train, evaluate, and use machine learning models for sepsis mortality prediction.")
@@ -267,7 +298,7 @@ def display_prediction_dashboard(df):
     y = df_model[target]
 
     if y.nunique() < 2:
-        st.error("❌ Cannot Build Model: The source data only contains one outcome.")
+        st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
         return
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
@@ -385,7 +416,7 @@ def display_prediction_dashboard(df):
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=model_features, key="pdp_feature")
         if X_train[pdp_feature].nunique() < 2:
-            st.warning(f"⚠️ Could not generate PDP for `{pdp_feature}`. This feature has only one unique value.")
+            st.warning(f"⚠️ **Could not generate PDP for `{pdp_feature}`. This feature has only one unique value.")
         else:
             try:
                 fig, ax = plt.subplots(figsize=(8, 5))
@@ -437,10 +468,6 @@ def display_prediction_dashboard(df):
             if submitted:
                 input_df = pd.DataFrame([input_data])[model_features]
                 
-                # Ensure feature names match for XGBoost
-                if hasattr(model, 'get_booster'):
-                    input_df.columns = model.get_booster().feature_names
-                
                 try:
                     if hasattr(model, "predict_proba"):
                         risk_percent = model.predict_proba(input_df)[0][1] * 100
@@ -482,22 +509,7 @@ def display_prediction_dashboard(df):
 
 # --- Main App Logic ---
 def main():
-    # Check password first
-    if not check_password():
-        return  # Stop execution if password is wrong
-    
-    # Load data
-    sepsis_df = load_data()
-    
-    # Show logo and title after password is entered
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=100)
-    with col2:
-        st.title("Sepsis Clinical Analytics Dashboard")
-    
-    st.sidebar.title("Navigation")
-    
+    st.sidebar.title("🩺 Sepsis Analytics Suite")
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -512,7 +524,9 @@ def main():
         elif app_mode == "Mortality Predictive Analysis":
             display_prediction_dashboard(sepsis_df)
     else:
+        st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
+        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 if __name__ == "__main__":
     main()
