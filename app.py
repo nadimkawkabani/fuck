@@ -12,7 +12,7 @@ from xgboost import XGBClassifier
 from sklearn.metrics import (accuracy_score, confusion_matrix,
                            precision_score, recall_score, f1_score,
                            roc_auc_score, roc_curve, auc)
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
@@ -23,6 +23,53 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- Password Protection ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show login page with logo
+        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=300)
+        st.title("Sepsis Clinical Analytics")
+        st.markdown("""
+        <style>
+            .login-box {
+                max-width: 400px;
+                padding: 2rem;
+                margin: 0 auto;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+        </style>
+        <div class="login-box">
+        """, unsafe_allow_html=True)
+        
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.error("Please enter the password to access the dashboard")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error.
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct.
+        return True
 
 # --- Session State Initialization ---
 if 'model_details' not in st.session_state:
@@ -41,10 +88,7 @@ def load_data():
         if df.empty:
             st.error("The loaded CSV file from the URL is empty.")
             return None
-            
-        # Clean column names
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
-        
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
             'Direnç_Durumu': 'Resistance_Status',
@@ -56,11 +100,6 @@ def load_data():
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
-            
-        # Clean and convert target variable to binary (0/1)
-        if df['Mortality'].nunique() > 2:
-            st.warning("Mortality column has more than 2 unique values. Converting to binary (0/1) where 1 indicates mortality.")
-            df['Mortality'] = (df['Mortality'] > 0).astype(int)
             
         if 'Gender' in df.columns:
             if pd.api.types.is_object_dtype(df['Gender']):
@@ -96,8 +135,6 @@ def load_data():
     except Exception as e:
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
-
-sepsis_df = load_data()
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
@@ -217,56 +254,30 @@ def train_model(_X_train, _y_train, model_type='XGBoost', **params):
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     y_proba = np.zeros(len(y_test)) 
-    
     if hasattr(model, "predict_proba"):
         try:
             proba_results = model.predict_proba(X_test)
-            if proba_results.shape[1] == 2: 
-                y_proba = proba_results[:, 1]
-            elif proba_results.shape[1] == 1:
-                y_proba = proba_results[:, 0]
-        except Exception as e:
-            st.warning(f"Could not get probability estimates: {e}")
-    
-    try: 
-        roc_auc = roc_auc_score(y_test, y_proba) if len(np.unique(y_test)) > 1 else 0.5
-    except ValueError: 
-        roc_auc = 0.5
-        
-    # Handle binary or multiclass metrics
-    if len(np.unique(y_test)) <= 2:
-        precision = precision_score(y_test, y_pred, zero_division=0)
-        recall = recall_score(y_test, y_pred, zero_division=0)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
-    else:
-        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-    
+            if proba_results.shape[1] == 2: y_proba = proba_results[:, 1]
+            elif model.classes_[0] == 1: y_proba = np.ones(len(y_test))
+        except Exception: pass
+    try: roc_auc = roc_auc_score(y_test, y_proba)
+    except ValueError: roc_auc = 0.5 
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
         'Value': [
             accuracy_score(y_test, y_pred),
-            precision,
-            recall,
-            f1,
+            precision_score(y_test, y_pred, average='weighted', zero_division=0),
+            recall_score(y_test, y_pred, average='weighted', zero_division=0),
+            f1_score(y_test, y_pred, average='weighted', zero_division=0),
             roc_auc
         ]
     })
-    
-    # Handle ROC curve
     try:
         fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
         roc_auc_val = auc(fpr, tpr)
     except (ValueError, IndexError):
-        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5
-        
-    # Handle confusion matrix
-    try:
-        cm = confusion_matrix(y_test, y_pred)
-    except:
-        cm = np.zeros((2, 2))
-    
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], roc_auc 
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
     return metrics_df, (fpr, tpr, roc_auc_val), cm
 
 # --- FULL-FEATURED PREDICTION DASHBOARD ---
@@ -274,17 +285,10 @@ def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Use this dashboard to train, evaluate, and use machine learning models for sepsis mortality prediction.")
     
-    # Define all possible features
-    all_possible_features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 
-                           'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 
-                           'COPD_Asthma', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 
-                           'WBC', 'CRP', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
-                           'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation']
-    
+    features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 'WBC', 'CRP']
     target = 'Mortality'
     
-    # Only use features that exist in the dataframe
-    available_features = [f for f in all_possible_features if f in df.columns]
+    available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns:
         st.error("❌ Essential columns for prediction are missing from the source data.")
         return
@@ -312,23 +316,11 @@ def display_prediction_dashboard(df):
             model_type = st.selectbox("Select Algorithm", ["XGBoost", "Random Forest", "Logistic Regression"], key="model_type_select")
             params = {}
             if model_type == "XGBoost":
-                params = {
-                    'n_estimators': st.slider("Number of trees", 50, 500, 100, key="xgb_n"), 
-                    'max_depth': st.slider("Max depth", 2, 10, 3, key="xgb_d"), 
-                    'learning_rate': st.slider("Learning rate", 0.01, 0.5, 0.1, key="xgb_lr")
-                }
-                if y_train.value_counts().get(1, 0) > 0:
-                    params['scale_pos_weight'] = y_train.value_counts()[0] / y_train.value_counts()[1]
+                params = {'n_estimators': st.slider("Number of trees", 50, 500, 100, key="xgb_n"), 'max_depth': st.slider("Max depth", 2, 10, 3, key="xgb_d"), 'learning_rate': st.slider("Learning rate", 0.01, 0.5, 0.1, key="xgb_lr")}
             elif model_type == "Random Forest":
-                params = {
-                    'n_estimators': st.slider("Number of trees", 50, 500, 100, key="rf_n"), 
-                    'max_depth': st.slider("Max depth", 2, 20, 10, key="rf_d")
-                }
+                params = {'n_estimators': st.slider("Number of trees", 50, 500, 100, key="rf_n"), 'max_depth': st.slider("Max depth", 2, 20, 10, key="rf_d")}
             elif model_type == "Logistic Regression":
-                 params = {
-                     'penalty': st.selectbox("Regularization", ["l2", "l1"], index=0, key="lr_p"), 
-                     'C': st.slider("Inverse regularization strength (C)", 0.01, 10.0, 1.0, key="lr_c")
-                 }
+                 params = {'penalty': st.selectbox("Regularization", ["l2", "l1"], index=0, key="lr_p"), 'C': st.slider("Inverse regularization strength (C)", 0.01, 10.0, 1.0, key="lr_c")}
         with col2:
             st.subheader("Class Distribution in Training Set")
             st.bar_chart(y_train.value_counts(normalize=True) * 100)
@@ -336,16 +328,12 @@ def display_prediction_dashboard(df):
             
         if st.button("Train Model", key="train_button"):
             with st.spinner(f"Training {model_type} model..."):
-                try:
-                    model = train_model(X_train, y_train, model_type=model_type, **params)
-                    st.session_state.model_details = {
-                        "model": model, 
-                        "model_type": model_type, 
-                        "features": X_train.columns.tolist()
-                    }
-                    st.success(f"✅ {model_type} model trained successfully!")
-                except Exception as e:
-                    st.error(f"❌ Failed to train model: {str(e)}")
+                if model_type == 'XGBoost':
+                    if y_train.value_counts().get(1, 0) > 0:
+                        params['scale_pos_weight'] = y_train.value_counts()[0] / y_train.value_counts()[1]
+                model = train_model(X_train, y_train, model_type=model_type, **params)
+                st.session_state.model_details = {"model": model, "model_type": model_type, "features": X_train.columns.tolist()}
+                st.success(f"✅ {model_type} model trained successfully!")
 
     if st.session_state.model_details["model"] is None:
         st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
@@ -353,70 +341,40 @@ def display_prediction_dashboard(df):
 
     model = st.session_state.model_details["model"]
     model_type = st.session_state.model_details["model_type"]
-    model_features = st.session_state.model_details["features"]
 
     with tab2:
         st.header(f"Performance Evaluation: {model_type}")
         metrics_df, roc_data, cm = evaluate_model(model, X_test, y_test)
         fpr, tpr, roc_auc_val = roc_data
-        
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Key Metrics")
             st.dataframe(metrics_df.style.format({'Value': '{:.2%}'}), use_container_width=True)
-            
             st.subheader("Confusion Matrix")
-            fig = px.imshow(
-                cm, 
-                text_auto=True, 
-                aspect="auto", 
-                labels=dict(x="Predicted Label", y="True Label", color="Count"),
-                color_continuous_scale=px.colors.sequential.Blues
-            )
+            fig = px.imshow(cm, text_auto=True, aspect="auto", labels=dict(x="Predicted Label", y="True Label", color="Count"), x=['Survived', 'Died'], y=['Survived', 'Died'], color_continuous_scale=px.colors.sequential.Blues)
             st.plotly_chart(fig, use_container_width=True)
-            
         with col2:
             st.subheader("ROC Curve")
-            fig = px.area(
-                x=fpr, 
-                y=tpr, 
-                title=f'ROC Curve (AUC = {roc_auc_val:.2f})', 
-                labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'}
-            )
+            fig = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc_val:.2f})', labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'})
             fig.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
             st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
         st.header(f"Model Interpretability: {model_type}")
         st.subheader("Feature Importance")
-        
-        try:
-            if hasattr(model, 'feature_importances_'):
-                importance_df = pd.DataFrame({'Feature': model_features, 'Importance': model.feature_importances_})
-            elif hasattr(model, 'named_steps') and hasattr(model.named_steps.get('logisticregression', None), 'coef_'):
-                importance_df = pd.DataFrame({
-                    'Feature': model_features, 
-                    'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])
-                })
-            else:
-                st.warning("Feature importance not available for this model type.")
-                return
-                
-            fig = px.bar(
-                importance_df.sort_values('Importance', ascending=False).head(15), 
-                x='Importance', 
-                y='Feature', 
-                orientation='h', 
-                title='Top 15 Important Features'
-            )
+        importance_df = None
+        if hasattr(model, 'feature_importances_'):
+            importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
+        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps:
+            importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
+        if importance_df is not None:
+            fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
             st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.error(f"Could not display feature importance: {e}")
         
         st.subheader("Partial Dependence Plots (PDP)")
-        pdp_feature = st.selectbox("Select feature for PDP", options=model_features, key="pdp_feature")
+        pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
         if X_train[pdp_feature].nunique() < 2:
-            st.warning(f"⚠️ **Could not generate PDP for `{pdp_feature}`. This feature has only one unique value.")
+            st.warning(f"⚠️ **Could not generate PDP for `{pdp_feature}`.** This feature has only one unique value.")
         else:
             try:
                 fig, ax = plt.subplots(figsize=(8, 5))
@@ -431,69 +389,34 @@ def display_prediction_dashboard(df):
         with st.form("prediction_form"):
             input_data = {}
             col1, col2, col3 = st.columns(3)
-            
-            # Get feature statistics for setting slider ranges
-            feature_stats = X.describe().loc[['min', 'max', 'mean']].to_dict()
-            
+            model_features = st.session_state.model_details["features"]
             for i, feature in enumerate(model_features):
                 with [col1, col2, col3][i % 3]:
-                    if feature == 'Age':
-                        input_data[feature] = st.slider(
-                            "Age (years)", 
-                            min_value=0, 
-                            max_value=120, 
-                            value=50
-                        )
+                    if feature == 'Age': input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
                         selected_gender = st.selectbox("Gender", ['Male', 'Female'])
                         input_data[feature] = 1 if selected_gender == 'Male' else 0
-                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 
-                                   'Diabetes_mellitus', 'Chronic_Renal_Failure', 
-                                   'Neurological_Diseases', 'COPD_Asthma']:
-                        input_data[feature] = st.checkbox(f"Has {feature.replace('_', ' ')}", False)
+                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
+                        input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                     else:
-                        # Use statistics from training data for slider ranges
-                        min_val = feature_stats[feature]['min']
-                        max_val = feature_stats[feature]['max']
-                        mean_val = feature_stats[feature]['mean']
-                        
-                        input_data[feature] = st.slider(
-                            feature.replace('_', ' '),
-                            min_value=float(min_val),
-                            max_value=float(max_val),
-                            value=float(mean_val))
-                            
+                        min_val = float(X[feature].min())
+                        max_val = float(X[feature].max())
+                        mean_val = float(X[feature].mean())
+                        input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             submitted = st.form_submit_button("Calculate Mortality Risk")
-            
             if submitted:
                 input_df = pd.DataFrame([input_data])[model_features]
-                
-                try:
-                    if hasattr(model, "predict_proba"):
-                        risk_percent = model.predict_proba(input_df)[0][1] * 100
-                    else:
-                        risk_percent = model.predict(input_df)[0] * 100
-                except Exception as e:
-                    st.error(f"Prediction failed: {e}")
-                    risk_percent = 0.0
-                
+                risk_percent = 0.0
+                if hasattr(model, "predict_proba") and len(model.classes_) == 2:
+                    risk_percent = model.predict_proba(input_df)[0][1] * 100
                 st.subheader("Prediction Results")
                 colA, colB = st.columns([1, 2])
                 with colA:
                     st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number", 
-                        value=risk_percent, 
-                        title={'text': "Risk Level"},
-                        gauge={
-                            'axis': {'range': [None, 100]},
-                            'steps': [
-                                {'range': [0, 20], 'color': "lightgreen"}, 
-                                {'range': [20, 50], 'color': "orange"}, 
-                                {'range': [50, 100], 'color': "red"}
-                            ],
-                            'bar': {'color': "darkblue"}
-                        }))
+                    fig = go.Figure(go.Indicator(mode="gauge+number", value=risk_percent, title={'text': "Risk Level"},
+                                                 gauge={'axis': {'range': [None, 100]},
+                                                        'steps': [{'range': [0, 20], 'color': "lightgreen"}, {'range': [20, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}],
+                                                        'bar': {'color': "darkblue"}}))
                     fig.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
                     st.plotly_chart(fig, use_container_width=True)
                 with colB:
@@ -509,7 +432,22 @@ def display_prediction_dashboard(df):
 
 # --- Main App Logic ---
 def main():
-    st.sidebar.title("🩺 Sepsis Analytics Suite")
+    # Check password first
+    if not check_password():
+        return  # Stop execution if password is wrong
+    
+    # Load data
+    sepsis_df = load_data()
+    
+    # Show logo and title after password is entered
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=100)
+    with col2:
+        st.title("Sepsis Clinical Analytics Dashboard")
+    
+    st.sidebar.title("Navigation")
+    
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -524,9 +462,7 @@ def main():
         elif app_mode == "Mortality Predictive Analysis":
             display_prediction_dashboard(sepsis_df)
     else:
-        st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
         st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
-        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
 
 if __name__ == "__main__":
     main()
