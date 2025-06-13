@@ -61,8 +61,6 @@ def load_data():
             elif pd.api.types.is_numeric_dtype(df['Gender']):
                 df['Gender'] = df['Gender'].replace(2, 0)
 
-        # --- FIX: 'Mortality' is removed from this text-based mapping ---
-        # It is already numeric (1s and 0s) in the source file.
         mappings = {
             'Comorbidity': {'var': 1},
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1}
@@ -71,7 +69,6 @@ def load_data():
             if col in df.columns:
                 df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
 
-        # This loop will now correctly handle the numeric 'Mortality' column
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -305,15 +302,26 @@ def display_prediction_dashboard(df):
         if importance_df is not None:
             fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
             st.plotly_chart(fig, use_container_width=True)
+        
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
-        try:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], ax=ax)
-            ax.set_title(f"Partial Dependence Plot for {pdp_feature}")
-            st.pyplot(fig)
-        except Exception as e:
-            st.warning(f"Could not generate PDP: {e}")
+
+        # --- FINAL FIX FOR PDP PLOTS ---
+        if X_train[pdp_feature].nunique() < 2:
+            st.warning(
+                f"⚠️ **Could not generate PDP for `{pdp_feature}`.** "
+                "This feature has only one unique value in the training data, "
+                "so its partial dependence cannot be calculated."
+            )
+        else:
+            try:
+                fig, ax = plt.subplots(figsize=(8, 5))
+                PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], ax=ax)
+                ax.set_title(f"Partial Dependence Plot for {pdp_feature}")
+                st.pyplot(fig)
+            except Exception as e:
+                st.error(f"An error occurred while generating the PDP: {e}")
+
     with tab4:
         st.header("Patient Risk Calculator")
         with st.form("prediction_form"):
