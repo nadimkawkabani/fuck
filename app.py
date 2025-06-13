@@ -35,18 +35,12 @@ if 'model_details' not in st.session_state:
 # --- Data Loading and Cleaning ---
 @st.cache_data
 def load_data():
-    """
-    Loads and cleans the sepsis data from a hardcoded GitHub URL.
-    """
     url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis.csv"
-    
     try:
         df = pd.read_csv(url)
-
         if df.empty:
             st.error("The loaded CSV file from the URL is empty.")
             return None
-
         df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace('’', '')
         rename_map = {
             'Ek_Hastalık_isimlerş': 'Comorbidity_Names',
@@ -55,42 +49,36 @@ def load_data():
             'KOAH_Asthım': 'COPD_Asthma'
         }
         df.rename(columns=rename_map, inplace=True, errors='ignore')
-
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
-
-        # --- CORRECTED & SIMPLIFIED MAPPING ---
-        # This dictionary handles all text-to-number conversions.
+        if 'Gender' in df.columns:
+            if pd.api.types.is_object_dtype(df['Gender']):
+                gender_map = {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0}
+                df['Gender'] = df['Gender'].str.lower().map(gender_map)
+            elif pd.api.types.is_numeric_dtype(df['Gender']):
+                df['Gender'] = df['Gender'].replace(2, 0)
         mappings = {
             'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1, 'yok': 0},
             'Comorbidity': {'var': 1, 'yok': 0},
-            'Gender': {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0},
             'Mortality': {'mortal': 1, 'mortal değil': 0}
         }
-
         for col, mapping in mappings.items():
             if col in df.columns and pd.api.types.is_object_dtype(df[col]):
                 df[col] = df[col].str.lower().map(mapping).fillna(df[col])
-
-        # Ensure all key categorical/binary columns are clean integers
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
-
         return df
-
     except Exception as e:
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
@@ -119,33 +107,26 @@ def display_eda_dashboard(df):
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
-
     if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
         age_options = list(df['Age_Group'].cat.categories)
         selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
-
     if 'Gender' in df.columns:
-        # --- CONSISTENT LOGIC (Male=1, Female=0) ---
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
             gender_code = 1 if selected_gender_str == 'Male' else 0
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
-
     if 'Mortality' in df.columns:
         mortality_filter = st.sidebar.selectbox("Filter by Mortality Status", options=['All', 'Survived', 'Died'], index=0)
         if mortality_filter != 'All':
             mortality_code = 1 if mortality_filter == 'Died' else 0
             filtered_df = filtered_df[filtered_df['Mortality'] == mortality_code]
-
     if filtered_df.empty:
         st.warning("⚠️ No data available for the selected filters.")
         return
-
     vital_cols = [col for col in ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation'] if col in df.columns]
     lab_cols = [col for col in ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine'] if col in df.columns]
     comorbidity_cols = [col for col in ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Others'] if col in df.columns]
-
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
     with tab1:
         st.header("Demographic Analysis")
@@ -157,7 +138,6 @@ def display_eda_dashboard(df):
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns:
-                # --- CONSISTENT LOGIC (Male=1, Female=0) ---
                 gender_map = {1: 'Male', 0: 'Female'}
                 gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
                 fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
@@ -211,10 +191,20 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
+# CORRECTED: Added zero_division=0 to prevent crashes
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
-    metrics_df = pd.DataFrame({'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'], 'Value': [accuracy_score(y_test, y_pred), precision_score(y_test, y_pred), recall_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba)]})
+    metrics_df = pd.DataFrame({
+        'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
+        'Value': [
+            accuracy_score(y_test, y_pred),
+            precision_score(y_test, y_pred, zero_division=0),
+            recall_score(y_test, y_pred, zero_division=0),
+            f1_score(y_test, y_pred, zero_division=0),
+            roc_auc_score(y_test, y_proba)
+        ]
+    })
     fpr, tpr, _ = roc_curve(y_test, y_proba)
     roc_auc_val = auc(fpr, tpr)
     return metrics_df, (fpr, tpr, roc_auc_val), confusion_matrix(y_test, y_pred)
@@ -222,27 +212,20 @@ def evaluate_model(model, X_test, y_test):
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Advanced machine learning for sepsis mortality prediction.")
-
     features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score']
     target = 'Mortality'
-
     available_features = [f for f in features if f in df.columns]
     if not available_features or target not in df.columns:
         st.error("❌ Essential columns for prediction are missing from the data.")
         return
-
     df_model = df[available_features + [target]].dropna()
     if df_model.empty:
         st.error("❌ No data available for model training after handling missing values.")
         return
-
     X = df_model[available_features]
     y = df_model[target]
-
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
-
     with tab1:
         st.header("Model Configuration")
         col1, col2 = st.columns(2)
@@ -263,14 +246,11 @@ def display_prediction_dashboard(df):
                 model = train_model(X_train, y_train, model_type, **params)
                 st.session_state.model_details = {"model": model, "model_type": model_type, "features": X_train.columns.tolist()}
                 st.success(f"✅ {model_type} model trained successfully!")
-
     if st.session_state.model_details["model"] is None:
         st.info("Please train a model using the 'Model Training' tab to see performance and make predictions.", icon="👈")
         return
-
     model = st.session_state.model_details["model"]
     model_type = st.session_state.model_details["model_type"]
-
     with tab2:
         st.header(f"Performance Evaluation: {model_type}")
         metrics_df, roc_data, cm = evaluate_model(model, X_test, y_test)
@@ -317,7 +297,6 @@ def display_prediction_dashboard(df):
                     if feature == 'Age':
                         input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
-                        # --- CONSISTENT LOGIC (Male=1, Female=0) ---
                         selected_gender = st.selectbox("Gender", ['Male', 'Female'])
                         input_data[feature] = 1 if selected_gender == 'Male' else 0
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
@@ -347,7 +326,6 @@ def display_prediction_dashboard(df):
 # --- Main App Logic ---
 def main():
     st.sidebar.title("🩺 Sepsis Analytics Suite")
-
     if sepsis_df is not None:
         st.sidebar.markdown("---")
         app_mode = st.sidebar.selectbox(
@@ -357,7 +335,6 @@ def main():
             key="app_mode_select"
         )
         st.sidebar.markdown("---")
-
         if app_mode == "Comprehensive EDA":
             display_eda_dashboard(sepsis_df)
         elif app_mode == "Mortality Predictive Analysis":
