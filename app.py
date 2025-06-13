@@ -16,6 +16,85 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
+# Add these imports at the top (if not already present)
+from PIL import Image
+import io
+import base64
+
+# Add this right after the imports but before the page configuration
+# --- Password Protection ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    # Set your password here (change "admin123" to your desired password)
+    CORRECT_PASSWORD = "msba"
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == CORRECT_PASSWORD:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input for password.
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("Please enter the password to access the dashboard")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error.
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 Password incorrect")
+        return False
+    else:
+        # Password correct.
+        return True
+
+# Add this logo display function (place it with the other visualization functions)
+def display_logo():
+    # You can replace this with your actual logo image (base64 encoded or URL)
+    logo_url = "https://www.unprme.org/the-american-university-of-beirut/"
+    
+    # Alternatively, you can use a base64 encoded image if you have one
+    # logo_base64 = "your_base64_encoded_image_here"
+    # st.markdown(f'<img src="data:image/png;base64,{logo_base64}" width="300">', unsafe_allow_html=True)
+    
+    st.sidebar.image(logo_url, width=200)
+    st.sidebar.markdown("---")
+
+# Modify the main() function to include password check and logo
+def main():
+    if not check_password():
+        st.stop()  # Do not continue if check_password is not True.
+    
+    # Display logo in sidebar
+    display_logo()
+    
+    st.sidebar.title("🩺 Sepsis Analytics Suite")
+    if sepsis_df is not None:
+        st.sidebar.markdown("---")
+        app_mode = st.sidebar.selectbox(
+            "Choose Dashboard",
+            ["Mortality Predictive Analysis", "Comprehensive EDA"],
+            index=0,
+            key="app_mode_select"
+        )
+        st.sidebar.markdown("---")
+        if app_mode == "Comprehensive EDA":
+            display_eda_dashboard(sepsis_df)
+        elif app_mode == "Mortality Predictive Analysis":
+            display_prediction_dashboard(sepsis_df)
+    else:
+        st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
+        st.error("🚨 Could not load the dataset. Please ensure the URL in the script is correct and the file is publicly accessible on GitHub.")
+        st.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", width=400)
+
+# The rest of your code remains exactly the same...
 
 # --- Page Configuration ---
 st.set_page_config(
