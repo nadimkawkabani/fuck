@@ -38,7 +38,7 @@ def load_data():
     """
     Loads and cleans the sepsis data from a hardcoded GitHub URL.
     """
-    url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis_Cleaned.csv"
+    url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis.csv"
     
     try:
         df = pd.read_csv(url)
@@ -60,26 +60,18 @@ def load_data():
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
 
-        # --- CORRECTED & SIMPLIFIED GENDER HANDLING ---
-        # The goal is to end with Gender being 1 for Male and 0 for Female.
-        if 'Gender' in df.columns:
-            # If the column is text, map it to 1/0
-            if pd.api.types.is_object_dtype(df['Gender']):
-                gender_map = {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0}
-                df['Gender'] = df['Gender'].str.lower().map(gender_map)
-            # If the column is already numeric (e.g., 1 and 2), convert 2 to 0.
-            elif pd.api.types.is_numeric_dtype(df['Gender']):
-                df['Gender'] = df['Gender'].replace(2, 0)
-        
-        # Handle other text-based columns
-        binary_mappings = {
-            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'Var': 1, 'Yok': 0},
-            'Comorbidity': {'Var': 1, 'Yok': 0},
-            'Mortality': {'Mortal': 1, 'Mortal Değil': 0}
+        # --- CORRECTED & SIMPLIFIED MAPPING ---
+        # This dictionary handles all text-to-number conversions.
+        mappings = {
+            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1, 'yok': 0},
+            'Comorbidity': {'var': 1, 'yok': 0},
+            'Gender': {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0},
+            'Mortality': {'mortal': 1, 'mortal değil': 0}
         }
-        for col, mapping in binary_mappings.items():
+
+        for col, mapping in mappings.items():
             if col in df.columns and pd.api.types.is_object_dtype(df[col]):
-                df[col] = df[col].str.lower().map(mapping)
+                df[col] = df[col].str.lower().map(mapping).fillna(df[col])
 
         # Ensure all key categorical/binary columns are clean integers
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
@@ -134,8 +126,7 @@ def display_eda_dashboard(df):
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
 
     if 'Gender' in df.columns:
-        # --- CORRECTED LOGIC (Male=1, Female=0) ---
-        gender_map = {1: 'Male', 0: 'Female'}
+        # --- CONSISTENT LOGIC (Male=1, Female=0) ---
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
             gender_code = 1 if selected_gender_str == 'Male' else 0
@@ -166,7 +157,7 @@ def display_eda_dashboard(df):
         with col2:
             st.subheader("Gender Distribution")
             if 'Gender' in filtered_df.columns:
-                # --- CORRECTED LOGIC (Male=1, Female=0) ---
+                # --- CONSISTENT LOGIC (Male=1, Female=0) ---
                 gender_map = {1: 'Male', 0: 'Female'}
                 gender_counts = filtered_df['Gender'].map(gender_map).value_counts()
                 fig = px.pie(gender_counts, values=gender_counts.values, names=gender_counts.index, title='Gender Distribution')
@@ -326,7 +317,7 @@ def display_prediction_dashboard(df):
                     if feature == 'Age':
                         input_data[feature] = st.slider("Age (years)", 18, 100, 65)
                     elif feature == 'Gender':
-                        # --- CORRECTED LOGIC (Male=1, Female=0) ---
+                        # --- CONSISTENT LOGIC (Male=1, Female=0) ---
                         selected_gender = st.selectbox("Gender", ['Male', 'Female'])
                         input_data[feature] = 1 if selected_gender == 'Male' else 0
                     elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
