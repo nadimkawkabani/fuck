@@ -95,14 +95,11 @@ sepsis_df = load_data()
 def plot_interactive_distribution(df, column, hue=None):
     title = f'Distribution of {column}'
     if hue:
-        # When comparing groups, density normalization is better than raw counts.
-        # This effectively turns the y-axis into a rate/proportion.
         fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30,
                            barmode='overlay', title=f'{title} by {hue}',
                            opacity=0.7, histnorm='probability density')
-        fig.update_yaxes(title_text="Density") # Label the y-axis appropriately
+        fig.update_yaxes(title_text="Density")
     else:
-        # For a single distribution, raw count is intuitive and standard.
         fig = px.histogram(df, x=column, marginal='box', nbins=30, title=title)
     
     fig.update_layout(legend_title_text=hue if hue else '')
@@ -216,7 +213,7 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
 # --- SIMPLIFIED PREDICTION DASHBOARD ---
 def display_prediction_dashboard(df):
     st.title("🧮 Sepsis Mortality Risk Calculator")
-    st.markdown("Enter patient data below to calculate the predicted risk of mortality based on a pre-trained Random Forest model.")
+    st.markdown("Enter patient data below to calculate the predicted risk of mortality based on a pre-trained XGBoost model.")
     features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score']
     target = 'Mortality'
     available_features = [f for f in features if f in df.columns]
@@ -232,14 +229,23 @@ def display_prediction_dashboard(df):
     if y.nunique() < 2:
         st.error("❌ **Cannot Build Model:** The source data only contains one outcome and cannot be used for prediction.")
         return
+        
+    # --- Automatic Model Training (if not already trained) ---
     if st.session_state.model_details["model"] is None:
         with st.spinner("Initializing the predictive model... Please wait."):
             X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-            model = train_model(X_train, y_train, model_type='Random Forest')
-            st.session_state.model_details = {"model": model, "model_type": 'Random Forest', "features": X_train.columns.tolist()}
+            # Use XGBoost as the default model for better performance
+            model = train_model(X_train, y_train, model_type='XGBoost') 
+            st.session_state.model_details = {
+                "model": model,
+                "model_type": 'XGBoost', 
+                "features": X_train.columns.tolist()
+            }
         st.success("✅ Predictive model is ready.")
+        
     model = st.session_state.model_details["model"]
     model_features = st.session_state.model_details["features"]
+    
     st.header("Patient Risk Calculator")
     with st.form("prediction_form"):
         input_data = {}
@@ -259,11 +265,13 @@ def display_prediction_dashboard(df):
                     mean_val = float(X[feature].mean())
                     input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
         submitted = st.form_submit_button("Calculate Mortality Risk")
+        
         if submitted:
             input_df = pd.DataFrame([input_data])[model_features]
             risk_percent = 0.0
             if hasattr(model, "predict_proba") and len(model.classes_) == 2:
                 risk_percent = model.predict_proba(input_df)[0][1] * 100
+            
             st.subheader("Prediction Results")
             colA, colB = st.columns([1, 2])
             with colA:
