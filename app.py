@@ -61,7 +61,7 @@ def load_data():
             elif pd.api.types.is_numeric_dtype(df['Gender']):
                 df['Gender'] = df['Gender'].replace(2, 0)
 
-        # ROBUST MAPPING: This new logic is much safer for creating binary 0/1 columns.
+        # ROBUST MAPPING: This logic is safer for creating binary 0/1 columns.
         mappings = {
             'Mortality': {'mortal': 1},
             'Comorbidity': {'var': 1},
@@ -69,7 +69,6 @@ def load_data():
         }
         for col, mapping in mappings.items():
             if col in df.columns:
-                # Force column to string, apply mapping, and fill any non-matches (NaNs) with 0.
                 df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
 
         # Final check to ensure columns are numeric integers
@@ -206,17 +205,15 @@ def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
 
-    # Handle edge case where y_test might have only one class, which would crash roc_auc_score
     try:
         roc_auc = roc_auc_score(y_test, y_proba)
     except ValueError:
-        roc_auc = 0.5 # A safe default for an uninformative classifier
+        roc_auc = 0.5 
 
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
         'Value': [
             accuracy_score(y_test, y_pred),
-            # FIX: Use average='weighted' to prevent crashing when a class is not predicted.
             precision_score(y_test, y_pred, average='weighted', zero_division=0),
             recall_score(y_test, y_pred, average='weighted', zero_division=0),
             f1_score(y_test, y_pred, average='weighted', zero_division=0),
@@ -224,16 +221,14 @@ def evaluate_model(model, X_test, y_test):
         ]
     })
 
-    # Handle roc_curve failing if only one class is in y_test
     try:
         fpr, tpr, _ = roc_curve(y_test, y_proba)
         roc_auc_val = auc(fpr, tpr)
     except ValueError:
-        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5 # Dummy ROC curve
+        fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5
 
-    # Ensure confusion matrix has labels for both classes to avoid plotting issues
     labels = sorted(np.unique(y_test.tolist() + y_pred.tolist()))
-    if len(labels) < 2: # If only one class is present in total, ensure we have 0 and 1
+    if len(labels) < 2: 
         labels = [0, 1]
     
     cm = confusion_matrix(y_test, y_pred, labels=labels)
@@ -257,10 +252,16 @@ def display_prediction_dashboard(df):
     X = df_model[available_features]
     y = df_model[target]
     
-    # Check if target is still binary after cleaning
-    if y.nunique() > 2:
-        st.error(f"Target column 'Mortality' is not binary. It contains values: {y.unique()}. Please check data cleaning.")
-        return
+    # --- ADDED THIS CRITICAL CHECK ---
+    # Check if the target variable has more than one class.
+    if y.nunique() < 2:
+        st.error(
+            "❌ **Model Training Failed:** The target column ('Mortality') "
+            "only contains one outcome after data cleaning. The model needs data for "
+            "both survivors (0) and non-survivors (1) to learn."
+        )
+        st.info(f"Unique values found in 'Mortality' column: {y.unique()}")
+        return # Stop the function here
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
