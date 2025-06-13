@@ -30,11 +30,22 @@ def check_password():
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
+        if "password" in st.session_state:
+            # Check if secrets file exists and has password
+            if "password" in st.secrets:
+                if st.session_state["password"] == st.secrets["password"]:
+                    st.session_state["password_correct"] = True
+                    del st.session_state["password"]  # don't store password
+                else:
+                    st.session_state["password_correct"] = False
+            else:
+                # Default password if secrets file doesn't exist
+                default_password = "admin"  # CHANGE THIS IN PRODUCTION
+                if st.session_state["password"] == default_password:
+                    st.session_state["password_correct"] = True
+                    del st.session_state["password"]
+                else:
+                    st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
         # First run, show login page with logo
@@ -58,7 +69,11 @@ def check_password():
         )
         st.markdown("</div>", unsafe_allow_html=True)
         
-        st.error("Please enter the password to access the dashboard")
+        # Show appropriate message based on whether secrets file exists
+        if "password" not in st.secrets:
+            st.warning("Using default password. For production, create a secrets.toml file.")
+        else:
+            st.info("Please enter the password to access the dashboard")
         return False
     elif not st.session_state["password_correct"]:
         # Password not correct, show input + error.
