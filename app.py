@@ -49,35 +49,45 @@ def load_data():
             'KOAH_Asthım': 'COPD_Asthma'
         }
         df.rename(columns=rename_map, inplace=True, errors='ignore')
+
         if 'Mortality' not in df.columns:
             st.error("Error: The required target column 'Mortality' was not found.")
             return None
+            
         if 'Gender' in df.columns:
             if pd.api.types.is_object_dtype(df['Gender']):
                 gender_map = {'male': 1, 'erkek': 1, 'm': 1, 'female': 0, 'kadın': 0, 'f': 0}
-                df['Gender'] = df['Gender'].str.lower().map(gender_map)
+                df['Gender'] = df['Gender'].astype(str).str.lower().map(gender_map).fillna(0)
             elif pd.api.types.is_numeric_dtype(df['Gender']):
                 df['Gender'] = df['Gender'].replace(2, 0)
+
+        # ROBUST MAPPING: This new logic is much safer for creating binary 0/1 columns.
         mappings = {
-            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1, 'yok': 0},
-            'Comorbidity': {'var': 1, 'yok': 0},
-            'Mortality': {'mortal': 1, 'mortal değil': 0}
+            'Mortality': {'mortal': 1},
+            'Comorbidity': {'var': 1},
+            'Systemic_Inflammatory_Response_Syndrome_SIRS_presence': {'var': 1}
         }
         for col, mapping in mappings.items():
-            if col in df.columns and pd.api.types.is_object_dtype(df[col]):
-                df[col] = df[col].str.lower().map(mapping).fillna(df[col])
+            if col in df.columns:
+                # Force column to string, apply mapping, and fill any non-matches (NaNs) with 0.
+                df[col] = df[col].astype(str).str.lower().map(mapping).fillna(0).astype(int)
+
+        # Final check to ensure columns are numeric integers
         for col in ['Gender', 'Mortality', 'Comorbidity', 'Systemic_Inflammatory_Response_Syndrome_SIRS_presence']:
              if col in df.columns:
                  df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+        
         numeric_cols = ['Age', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                        'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation', 'WBC', 'CRP']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                
         if 'Age' in df.columns:
             bins = [0, 18, 40, 50, 60, 70, 80, 120]
             labels = ['<18', '18-39', '40-49', '50-59', '60-69', '70-79', '80+']
             df['Age_Group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)
+            
         return df
     except Exception as e:
         st.error(f"Failed to load or process data. Error: {str(e)}")
@@ -107,7 +117,7 @@ def display_eda_dashboard(df):
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
-    if 'Age_Group' in df.columns and pd.api.types.is_categorical_dtype(df['Age_Group']):
+    if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
         age_options = list(df['Age_Group'].cat.categories)
         selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
@@ -191,7 +201,7 @@ def train_model(_X_train, _y_train, model_type='Random Forest', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- CORRECTED MODEL EVALUATION FUNCTION ---
+# --- CORRECTED & ROBUST MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
@@ -222,10 +232,14 @@ def evaluate_model(model, X_test, y_test):
         fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5 # Dummy ROC curve
 
     # Ensure confusion matrix has labels for both classes to avoid plotting issues
-    labels = sorted(np.unique(y_test))
+    labels = sorted(np.unique(y_test.tolist() + y_pred.tolist()))
+    if len(labels) < 2: # If only one class is present in total, ensure we have 0 and 1
+        labels = [0, 1]
+    
     cm = confusion_matrix(y_test, y_pred, labels=labels)
 
     return metrics_df, (fpr, tpr, roc_auc_val), cm
+
 
 def display_prediction_dashboard(df):
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
@@ -242,6 +256,12 @@ def display_prediction_dashboard(df):
         return
     X = df_model[available_features]
     y = df_model[target]
+    
+    # Check if target is still binary after cleaning
+    if y.nunique() > 2:
+        st.error(f"Target column 'Mortality' is not binary. It contains values: {y.unique()}. Please check data cleaning.")
+        return
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
     with tab1:
@@ -289,15 +309,13 @@ def display_prediction_dashboard(df):
         st.header(f"Model Interpretability: {model_type}")
         st.subheader("Feature Importance")
         importance_df = None
-        if hasattr(model, 'feature_importances_'): # For RF, XGB
+        if hasattr(model, 'feature_importances_'):
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
-        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps: # For LR Pipeline
+        elif hasattr(model, 'named_steps') and 'logisticregression' in model.named_steps:
             importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])})
-        
         if importance_df is not None:
             fig = px.bar(importance_df.sort_values('Importance', ascending=False).head(15), x='Importance', y='Feature', orientation='h', title='Top 15 Important Features')
             st.plotly_chart(fig, use_container_width=True)
-
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=X.columns, key="pdp_feature")
         try:
@@ -325,7 +343,8 @@ def display_prediction_dashboard(df):
                         min_val, max_val, mean_val = float(X[feature].min()), float(X[feature].max()), float(X[feature].mean())
                         input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
             if st.form_submit_button("Calculate Mortality Risk"):
-                risk_percent = model.predict_proba(pd.DataFrame([input_data])[model_features])[0][1] * 100
+                input_df = pd.DataFrame([input_data])[model_features]
+                risk_percent = model.predict_proba(input_df)[0][1] * 100
                 st.subheader("Prediction Results")
                 colA, colB = st.columns(2)
                 with colA:
