@@ -538,7 +538,7 @@ def run_dashboard():
     """This function contains the original application logic and the logo."""
     
     # ADDED: Logo and Logout button in the sidebar.
-    st.sidebar.image("https://www.sccm.org/SCCM/media/images/sepsis-rebranded-logo.jpg", use_column_width=True)
+    st.sidebar.image("https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fd30mzt1bxg5llt.cloudfront.net%2Fpublic%2Fuploads%2Fimages%2F_signatoryLogo%2FOSB-a-burgundy-logo_2023-01-19-174244_vdlc.png&f=1&nofb=1&ipt=c0794f840736196e4e115b382d52e94c89904d8088124641b1be418ac603fc97", use_column_width=True)
     if st.sidebar.button("Logout"):
         st.session_state["password_correct"] = False
         st.rerun()
