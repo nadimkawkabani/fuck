@@ -40,7 +40,7 @@ def check_password():
                     st.session_state["password_correct"] = False
             else:
                 # Default password if secrets file doesn't exist
-                default_password = "admin"  # CHANGE THIS IN PRODUCTION
+                default_password = "msba"  # CHANGE THIS IN PRODUCTION
                 if st.session_state["password"] == default_password:
                     st.session_state["password_correct"] = True
                     del st.session_state["password"]
