@@ -520,15 +520,19 @@ def main():
     # =========================================================================
     CORRECT_PASSWORD = "msba"
 
-    # --- Logo and Password Input in Sidebar ---
-    st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
+    # --- Password Input in Sidebar ---
+    # The logo is displayed on the main page before login, and in the sidebar after.
     password_attempt = st.sidebar.text_input("Enter Password to View Dashboard", type="password")
 
     # --- Check Password and Display Corresponding View ---
     if password_attempt == CORRECT_PASSWORD:
         # If password is correct, build the main dashboard
-        sepsis_df = load_data()
+        
+        # Display logo and title in sidebar after successful login
+        st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
         st.sidebar.title("🩺 Sepsis Analytics Suite")
+        
+        sepsis_df = load_data()
 
         if sepsis_df is not None:
             st.sidebar.markdown("---")
@@ -548,11 +552,19 @@ def main():
             st.error("🚨 Could not load the dataset. Please ensure the URL is correct.")
 
     else:
-        # If password is not correct, show a locked screen
-        st.title("🔐 Access Denied")
-        st.write("---")
-        st.warning("Please enter the correct password in the sidebar to view the dashboard.")
-        st.image("https://i.imgur.com/v2SPiTz.png", width=200) # A generic lock icon
+        # If password is not correct, show a welcome screen with the logo and title.
+        
+        # Use columns to center the logo.
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png")
+
+        # Add the title underneath, centered.
+        st.markdown(
+            "<h2 style='text-align: center;'>A Data-Driven Approach to Sepsis Mortality Prediction and Risk Factor Analysis</h2>", 
+            unsafe_allow_html=True
+        )
+        st.info("Please enter the password in the sidebar to continue.")
 
 
 if __name__ == "__main__":
