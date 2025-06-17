@@ -513,26 +513,17 @@ def main():
     Main function to run the app. It handles the password check on every run
     and decides whether to show the dashboard or the lock screen.
     """
-
-    # =========================================================================
-    # **Where to change the password:**
-    # Change the password string in the line below.
-    # =========================================================================
     CORRECT_PASSWORD = "msba"
 
     # --- Password Input in Sidebar ---
-    # The logo is displayed on the main page before login, and in the sidebar after.
     password_attempt = st.sidebar.text_input("Enter Password to View Dashboard", type="password")
 
     # --- Check Password and Display Corresponding View ---
     if password_attempt == CORRECT_PASSWORD:
         # If password is correct, build the main dashboard
-        
-        # Display logo and title in sidebar after successful login
         st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
-        st.sidebar.title("🩺 Sepsis Analytics Suite")
-        
         sepsis_df = load_data()
+        st.sidebar.title("🩺 Sepsis Analytics Suite")
 
         if sepsis_df is not None:
             st.sidebar.markdown("---")
@@ -552,19 +543,19 @@ def main():
             st.error("🚨 Could not load the dataset. Please ensure the URL is correct.")
 
     else:
-        # If password is not correct, show a welcome screen with the logo and title.
+        # If password is not correct, show the centered logo and title.
+        # The password prompt is already in the sidebar.
         
-        # Use columns to center the logo.
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
+        # Use columns to center the logo. The outer columns are just spacers.
+        _ , mid_col, _ = st.columns([1, 2, 1])
+        with mid_col:
             st.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png")
 
-        # Add the title underneath, centered.
+        # Add the title underneath, centered using markdown.
         st.markdown(
             "<h2 style='text-align: center;'>A Data-Driven Approach to Sepsis Mortality Prediction and Risk Factor Analysis</h2>", 
             unsafe_allow_html=True
         )
-        st.info("Please enter the password in the sidebar to continue.")
 
 
 if __name__ == "__main__":
