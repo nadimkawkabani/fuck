@@ -118,7 +118,7 @@ def plot_correlation_matrix(df, columns):
 
 # --- EDA Dashboard Function ---
 def display_eda_dashboard(df):
-    st.title("🏥 Comprehensive Exploratory Data Analysis (EDA)")
+    st.title("🏥 Unveiling Sepsis Mortality: An Exploratory Analysis of Clinical Risk Factors")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
