@@ -59,7 +59,6 @@ def load_data():
             
         # Clean and convert target variable to binary (0/1)
         if df['Mortality'].nunique() > 2:
-            st.warning("Mortality column has more than 2 unique values. Converting to binary (0/1) where 1 indicates mortality.")
             df['Mortality'] = (df['Mortality'] > 0).astype(int)
             
         if 'Gender' in df.columns:
@@ -521,7 +520,7 @@ def main():
     # --- Check Password and Display Corresponding View ---
     if password_attempt == CORRECT_PASSWORD:
         # If password is correct, build the main dashboard
-        st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_column_width=True)
+        st.sidebar.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png", use_container_width=True)
         sepsis_df = load_data()
         st.sidebar.title("🩺 Sepsis Analytics Suite")
 
