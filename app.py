@@ -16,6 +16,20 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
+import warnings
+import sys
+import os
+
+# Suppress all warnings
+warnings.filterwarnings("ignore")
+
+# Specifically suppress Streamlit deprecation warnings
+st.set_option('deprecation.showPyplotGlobalUse', False)
+st.set_option('deprecation.showfileUploaderEncoding', False)
+
+# Suppress XGBoost warnings
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
 
 # --- Page Configuration ---
 st.set_page_config(
