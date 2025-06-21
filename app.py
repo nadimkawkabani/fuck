@@ -12,7 +12,7 @@ from xgboost import XGBClassifier
 from sklearn.metrics import (accuracy_score, confusion_matrix,
                            precision_score, recall_score, f1_score,
                            roc_auc_score, roc_curve, auc)
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
@@ -23,11 +23,7 @@ import os
 # Suppress all warnings
 warnings.filterwarnings("ignore")
 
-# Specifically suppress Streamlit deprecation warnings
-st.set_option('deprecation.showPyplotGlobalUse', False)
-st.set_option('deprecation.showfileUploaderEncoding', False)
-
-# Suppress XGBoost warnings
+# Suppress XGBoost warnings (useful for some environments)
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
@@ -49,6 +45,14 @@ if 'model_details' not in st.session_state:
 # --- Data Loading and Cleaning ---
 @st.cache_data
 def load_data():
+    """
+    Loads, cleans, and preprocesses the sepsis dataset from a URL.
+    - Cleans column names.
+    - Handles target variable encoding.
+    - Encodes categorical and binary features.
+    - Converts columns to appropriate numeric types.
+    - Creates age groups for EDA.
+    """
     url = "https://raw.githubusercontent.com/nadimkawkabani/fuck/main/ICU_Sepsis.csv"
     try:
         df = pd.read_csv(url)
@@ -112,6 +116,7 @@ def load_data():
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
+    """Generates an interactive histogram with an optional hue."""
     title = f'Distribution of {column}'
     if hue:
         fig = px.histogram(df, x=column, color=hue, marginal='box', nbins=30,
@@ -125,37 +130,49 @@ def plot_interactive_distribution(df, column, hue=None):
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_correlation_matrix(df, columns):
+    """Generates an interactive correlation matrix heatmap."""
     corr = df[columns].corr()
     fig = px.imshow(corr, text_auto=True, aspect='auto', color_continuous_scale='RdBu_r', title='Feature Correlation Matrix')
     st.plotly_chart(fig, use_container_width=True)
 
 # --- EDA Dashboard Function ---
 def display_eda_dashboard(df):
+    """Renders the entire Exploratory Data Analysis dashboard."""
     st.title("🏥 Unveiling Sepsis Mortality: An Exploratory Analysis of Clinical Risk Factors.")
     st.markdown("A deep dive into the sepsis patient dataset with interactive visualizations.")
     st.sidebar.header("🔍 EDA Filters")
     filtered_df = df.copy()
+    
+    # --- Sidebar Filters ---
     if 'Age_Group' in df.columns and isinstance(df['Age_Group'].dtype, pd.CategoricalDtype):
         age_options = list(df['Age_Group'].cat.categories)
         selected_age = st.sidebar.multiselect("Filter by Age Group", options=age_options, default=age_options)
         filtered_df = filtered_df[filtered_df['Age_Group'].isin(selected_age)]
+    
     if 'Gender' in df.columns:
         selected_gender_str = st.sidebar.selectbox("Filter by Gender", options=['All', 'Male', 'Female'], index=0)
         if selected_gender_str != 'All':
             gender_code = 1 if selected_gender_str == 'Male' else 0
             filtered_df = filtered_df[filtered_df['Gender'] == gender_code]
+    
     if 'Mortality' in df.columns:
         mortality_filter = st.sidebar.selectbox("Filter by Mortality Status", options=['All', 'Survived', 'Died'], index=0)
         if mortality_filter != 'All':
             mortality_code = 1 if mortality_filter == 'Died' else 0
             filtered_df = filtered_df[filtered_df['Mortality'] == mortality_code]
+    
     if filtered_df.empty:
         st.warning("⚠️ No data available for the selected filters.")
         return
+        
+    # --- Define column groups ---
     vital_cols = [col for col in ['Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure', 'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation'] if col in df.columns]
     lab_cols = [col for col in ['Albumin', 'CRP', 'Glukoz', 'Eosinophil_count', 'HCT', 'Hemoglobin', 'Lymphocyte_count', 'Monocyte_count', 'Neutrophil_count', 'PLT', 'RBC', 'WBC', 'Creatinine'] if col in df.columns]
     comorbidity_cols = [col for col in ['Comorbidity', 'Solid_organ_cancer', 'Hematological_Diseases', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma', 'Others'] if col in df.columns]
+    
+    # --- EDA Tabs ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Demographics", "🩸 Vitals & Labs", "⚠️ Risk Factors", "📈 Correlations"])
+    
     with tab1:
         st.header("Demographic Analysis")
         col1, col2 = st.columns(2)
@@ -175,6 +192,7 @@ def display_eda_dashboard(df):
             fig = px.box(filtered_df, x='Mortality', y='Age', color='Mortality', points='all', title='Age Distribution by Mortality Status')
             fig.update_xaxes(title_text='Mortality Status', tickvals=[0, 1], ticktext=['Survived', 'Died'])
             st.plotly_chart(fig, use_container_width=True)
+            
     with tab2:
         st.header("Vitals & Lab Results Analysis")
         all_vitals_labs = vital_cols + lab_cols
@@ -183,6 +201,7 @@ def display_eda_dashboard(df):
              if selected_feature in filtered_df.columns and 'Mortality' in filtered_df.columns:
                 plot_interactive_distribution(filtered_df, selected_feature, 'Mortality')
         else: st.warning("No vital sign or lab columns found.")
+        
     with tab3:
         st.header("Risk Factors & Comorbidities Analysis")
         if comorbidity_cols and 'Mortality' in filtered_df.columns:
@@ -205,6 +224,7 @@ def display_eda_dashboard(df):
                 st.warning("No patient data to calculate rates.")
         else:
             st.warning("Comorbidity or Mortality columns not found.")
+            
     with tab4:
         st.header("Feature Correlations")
         all_numeric_cols = [col for col in filtered_df.columns if pd.api.types.is_numeric_dtype(filtered_df[col]) and filtered_df[col].nunique() > 1]
@@ -215,6 +235,7 @@ def display_eda_dashboard(df):
 # --- ML Model Functions ---
 @st.cache_resource
 def train_model(_X_train, _y_train, model_type='XGBoost', **params):
+    """Trains a specified machine learning model."""
     if model_type == 'XGBoost':
         model = XGBClassifier(objective='binary:logistic', eval_metric='logloss', use_label_encoder=False, random_state=42, **params)
     elif model_type == 'Logistic Regression':
@@ -224,11 +245,15 @@ def train_model(_X_train, _y_train, model_type='XGBoost', **params):
     model.fit(_X_train, _y_train)
     return model
 
-# --- ROBUST MODEL EVALUATION FUNCTION ---
 def evaluate_model(model, X_test, y_test):
+    """
+    Evaluates the model and returns performance metrics, ROC data, and confusion matrix.
+    This function is robust to different model types and potential data issues.
+    """
     y_pred = model.predict(X_test)
     y_proba = np.zeros(len(y_test)) 
     
+    # Safely get prediction probabilities
     if hasattr(model, "predict_proba"):
         try:
             proba_results = model.predict_proba(X_test)
@@ -239,40 +264,33 @@ def evaluate_model(model, X_test, y_test):
         except Exception as e:
             st.warning(f"Could not get probability estimates: {e}")
     
+    # Calculate metrics, handling potential errors
     try: 
         roc_auc = roc_auc_score(y_test, y_proba) if len(np.unique(y_test)) > 1 else 0.5
     except ValueError: 
         roc_auc = 0.5
         
-    # Handle binary or multiclass metrics
-    if len(np.unique(y_test)) <= 2:
-        precision = precision_score(y_test, y_pred, zero_division=0)
-        recall = recall_score(y_test, y_pred, zero_division=0)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
-    else:
-        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+    # Handle metrics for binary or multiclass cases
+    pos_label = 1 if len(np.unique(y_test)) <= 2 else None
+    average_method = 'binary' if pos_label is not None else 'weighted'
+    
+    precision = precision_score(y_test, y_pred, pos_label=pos_label, average=average_method, zero_division=0)
+    recall = recall_score(y_test, y_pred, pos_label=pos_label, average=average_method, zero_division=0)
+    f1 = f1_score(y_test, y_pred, pos_label=pos_label, average=average_method, zero_division=0)
     
     metrics_df = pd.DataFrame({
         'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC AUC'],
-        'Value': [
-            accuracy_score(y_test, y_pred),
-            precision,
-            recall,
-            f1,
-            roc_auc
-        ]
+        'Value': [accuracy_score(y_test, y_pred), precision, recall, f1, roc_auc]
     })
     
-    # Handle ROC curve
+    # Safely generate ROC curve data
     try:
         fpr, tpr, _ = roc_curve(y_test, y_proba, pos_label=1)
         roc_auc_val = auc(fpr, tpr)
     except (ValueError, IndexError):
         fpr, tpr, roc_auc_val = [0, 1], [0, 1], 0.5
         
-    # Handle confusion matrix
+    # Safely generate confusion matrix
     try:
         cm = confusion_matrix(y_test, y_pred)
     except:
@@ -280,21 +298,20 @@ def evaluate_model(model, X_test, y_test):
     
     return metrics_df, (fpr, tpr, roc_auc_val), cm
 
-# --- FULL-FEATURED PREDICTION DASHBOARD ---
+# --- Prediction Dashboard Function ---
 def display_prediction_dashboard(df):
+    """Renders the entire machine learning and prediction dashboard."""
     st.title("🤖 Enhanced Mortality Prediction & Risk Analysis")
     st.markdown("Use this dashboard to train, evaluate, and use machine learning models for sepsis mortality prediction.")
     
-    # Define all possible features
     all_possible_features = ['Age', 'Gender', 'Comorbidity', 'Hypertension', 'Heart_Diseases', 
                            'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 
                            'COPD_Asthma', 'The_National_Early_Warning_Score_NEWS', 'qSOFA_Score', 
                            'WBC', 'CRP', 'Pulse_rate', 'Respiratory_Rate', 'Systolic_blood_pressure',
                            'Diastolic_blood_pressure', 'Fever', 'Oxygen_saturation']
-    
     target = 'Mortality'
     
-    # Only use features that exist in the dataframe
+    # --- Data Preparation for Modeling ---
     available_features = [f for f in all_possible_features if f in df.columns]
     if not available_features or target not in df.columns:
         st.error("❌ Essential columns for prediction are missing from the source data.")
@@ -314,6 +331,7 @@ def display_prediction_dashboard(df):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
+    # --- ML Dashboard Tabs ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Model Training", "📈 Performance", "🔍 Interpretability", "🧮 Risk Calculator"])
 
     with tab1:
@@ -328,7 +346,7 @@ def display_prediction_dashboard(df):
                     'max_depth': st.slider("Max depth", 2, 10, 3, key="xgb_d"), 
                     'learning_rate': st.slider("Learning rate", 0.01, 0.5, 0.1, key="xgb_lr")
                 }
-                if y_train.value_counts().get(1, 0) > 0:
+                if y_train.value_counts().get(1, 0) > 0 and y_train.value_counts().get(0, 0) > 0:
                     params['scale_pos_weight'] = y_train.value_counts()[0] / y_train.value_counts()[1]
             elif model_type == "Random Forest":
                 params = {
@@ -368,7 +386,7 @@ def display_prediction_dashboard(df):
 
     with tab2:
         st.header(f"Performance Evaluation: {model_type}")
-        metrics_df, roc_data, cm = evaluate_model(model, X_test, y_test)
+        metrics_df, roc_data, cm = evaluate_model(model, X_test[model_features], y_test)
         fpr, tpr, roc_auc_val = roc_data
         
         col1, col2 = st.columns(2)
@@ -402,35 +420,35 @@ def display_prediction_dashboard(df):
         st.subheader("Feature Importance")
         
         try:
-            if hasattr(model, 'feature_importances_'):
-                importance_df = pd.DataFrame({'Feature': model_features, 'Importance': model.feature_importances_})
-            elif hasattr(model, 'named_steps') and hasattr(model.named_steps.get('logisticregression', None), 'coef_'):
-                importance_df = pd.DataFrame({
-                    'Feature': model_features, 
-                    'Importance': np.abs(model.named_steps['logisticregression'].coef_[0])
-                })
+            if model_type in ['XGBoost', 'Random Forest']:
+                importances = model.feature_importances_
+            elif model_type == 'Logistic Regression':
+                importances = np.abs(model.named_steps['logisticregression'].coef_[0])
             else:
-                st.warning("Feature importance not available for this model type.")
-                return
-                
-            fig = px.bar(
-                importance_df.sort_values('Importance', ascending=False).head(15), 
-                x='Importance', 
-                y='Feature', 
-                orientation='h', 
-                title='Top 15 Important Features'
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                st.warning("Feature importance not directly available for this model type.")
+                importances = None
+            
+            if importances is not None:
+                importance_df = pd.DataFrame({'Feature': model_features, 'Importance': importances})
+                fig = px.bar(
+                    importance_df.sort_values('Importance', ascending=True).tail(15), 
+                    x='Importance', 
+                    y='Feature', 
+                    orientation='h', 
+                    title='Top 15 Important Features'
+                )
+                st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.error(f"Could not display feature importance: {e}")
         
         st.subheader("Partial Dependence Plots (PDP)")
         pdp_feature = st.selectbox("Select feature for PDP", options=model_features, key="pdp_feature")
         if X_train[pdp_feature].nunique() < 2:
-            st.warning(f"⚠️ **Could not generate PDP for `{pdp_feature}`. This feature has only one unique value.")
+            st.warning(f"⚠️ **Could not generate PDP for `{pdp_feature}`.** This feature has only one unique value.")
         else:
             try:
                 fig, ax = plt.subplots(figsize=(8, 5))
+                # PDP expects target class index for classification
                 PartialDependenceDisplay.from_estimator(model, X_train, [pdp_feature], target=1, ax=ax)
                 ax.set_title(f"Partial Dependence Plot for {pdp_feature} on Mortality Risk")
                 st.pyplot(fig)
@@ -443,36 +461,22 @@ def display_prediction_dashboard(df):
             input_data = {}
             col1, col2, col3 = st.columns(3)
             
-            # Get feature statistics for setting slider ranges
             feature_stats = X.describe().loc[['min', 'max', 'mean']].to_dict()
             
             for i, feature in enumerate(model_features):
-                with [col1, col2, col3][i % 3]:
+                current_col = [col1, col2, col3][i % 3]
+                with current_col:
                     if feature == 'Age':
-                        input_data[feature] = st.slider(
-                            "Age (years)", 
-                            min_value=0, 
-                            max_value=120, 
-                            value=50
-                        )
+                        input_data[feature] = st.slider("Age (years)", 0, 120, 50)
                     elif feature == 'Gender':
-                        selected_gender = st.selectbox("Gender", ['Male', 'Female'])
-                        input_data[feature] = 1 if selected_gender == 'Male' else 0
-                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 
-                                   'Diabetes_mellitus', 'Chronic_Renal_Failure', 
-                                   'Neurological_Diseases', 'COPD_Asthma']:
-                        input_data[feature] = st.checkbox(f"Has {feature.replace('_', ' ')}", False)
+                        input_data[feature] = 1 if st.selectbox("Gender", ['Male', 'Female']) == 'Male' else 0
+                    elif feature in ['Comorbidity', 'Hypertension', 'Heart_Diseases', 'Diabetes_mellitus', 'Chronic_Renal_Failure', 'Neurological_Diseases', 'COPD_Asthma']:
+                        input_data[feature] = 1 if st.checkbox(f"Has {feature.replace('_', ' ')}", False) else 0
                     else:
-                        # Use statistics from training data for slider ranges
-                        min_val = feature_stats[feature]['min']
-                        max_val = feature_stats[feature]['max']
-                        mean_val = feature_stats[feature]['mean']
-                        
-                        input_data[feature] = st.slider(
-                            feature.replace('_', ' '),
-                            min_value=float(min_val),
-                            max_value=float(max_val),
-                            value=float(mean_val))
+                        min_val = float(feature_stats.get(feature, {}).get('min', 0))
+                        max_val = float(feature_stats.get(feature, {}).get('max', 100))
+                        mean_val = float(feature_stats.get(feature, {}).get('mean', 50))
+                        input_data[feature] = st.slider(feature.replace('_', ' '), min_val, max_val, mean_val)
                             
             submitted = st.form_submit_button("Calculate Mortality Risk")
             
@@ -480,10 +484,7 @@ def display_prediction_dashboard(df):
                 input_df = pd.DataFrame([input_data])[model_features]
                 
                 try:
-                    if hasattr(model, "predict_proba"):
-                        risk_percent = model.predict_proba(input_df)[0][1] * 100
-                    else:
-                        risk_percent = model.predict(input_df)[0] * 100
+                    risk_percent = model.predict_proba(input_df)[0][1] * 100
                 except Exception as e:
                     st.error(f"Prediction failed: {e}")
                     risk_percent = 0.0
@@ -491,13 +492,12 @@ def display_prediction_dashboard(df):
                 st.subheader("Prediction Results")
                 colA, colB = st.columns([1, 2])
                 with colA:
-                    st.metric(label="Predicted Mortality Risk", value=f"{risk_percent:.1f}%")
                     fig = go.Figure(go.Indicator(
                         mode="gauge+number", 
                         value=risk_percent, 
-                        title={'text': "Risk Level"},
+                        title={'text': "Mortality Risk"},
                         gauge={
-                            'axis': {'range': [None, 100]},
+                            'axis': {'range': [None, 100], 'tickprefix': "%"},
                             'steps': [
                                 {'range': [0, 20], 'color': "lightgreen"}, 
                                 {'range': [20, 50], 'color': "orange"}, 
@@ -520,7 +520,6 @@ def display_prediction_dashboard(df):
 
 
 # --- Main Application Execution Logic ---
-
 def main():
     """
     Main function to run the app. It handles the password check on every run
@@ -553,18 +552,15 @@ def main():
                 display_prediction_dashboard(sepsis_df)
         else:
             st.title("Welcome to the Sepsis Clinical Analytics Dashboard")
-            st.error("🚨 Could not load the dataset. Please ensure the URL is correct.")
+            st.error("🚨 Could not load the dataset. Please check the data source and try again.")
 
     else:
-        # If password is not correct, show the centered logo and title.
-        # The password prompt is already in the sidebar.
-        
-        # Use columns to center the logo. The outer columns are just spacers.
+        # If password is not correct, show a centered logo and title.
+        # The password prompt remains in the sidebar.
         _ , mid_col, _ = st.columns([1, 2, 1])
         with mid_col:
             st.image("https://www.aub.edu.lb/osb/125/PublishingImages/OSB125.png")
 
-        # Add the title underneath, centered using markdown.
         st.markdown(
             "<h2 style='text-align: center;'>A Data-Driven Approach to Sepsis Mortality Prediction and Risk Factor Analysis</h2>", 
             unsafe_allow_html=True
