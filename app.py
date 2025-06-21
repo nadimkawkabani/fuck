@@ -16,13 +16,6 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import make_pipeline
 from sklearn.inspection import PartialDependenceDisplay
 from datetime import datetime
-import warnings
-import os
-
-# Suppress warnings
-warnings.filterwarnings("ignore")
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logging
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'  # For XGBoost
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -102,8 +95,6 @@ def load_data():
     except Exception as e:
         st.error(f"Failed to load or process data. Error: {str(e)}")
         return None
-
-# [Rest of your code remains exactly the same...]
 
 # --- Visualization Functions ---
 def plot_interactive_distribution(df, column, hue=None):
