@@ -970,7 +970,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button("🚀 Load & Process Data", type="primary", use_container_width=True, use_container_width=True):
+            if st.button("🚀 Load & Process Data", type="primary", use_container_width=True):
                 with st.spinner("Processing data..."):
                     dashboard.load_data()
                 st.rerun()
