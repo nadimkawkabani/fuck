@@ -8,6 +8,8 @@ from datetime import datetime
 import base64
 from io import BytesIO
 import warnings
+import os
+import sys
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -17,42 +19,110 @@ warnings.filterwarnings('ignore')
 # SECTION 1: DATA PROCESSING CLASS
 # ============================================
 class ESTDataProcessor:
-    def __init__(self, excel_path):
+    def __init__(self, excel_path=None, excel_bytes=None):
         self.excel_path = excel_path
+        self.excel_bytes = excel_bytes
         self.exam_date = datetime(2022, 2, 4)
         self.load_all_sheets()
         
     def load_all_sheets(self):
         """Load all required sheets from the Excel file"""
         try:
+            # Determine source (file or bytes)
+            if self.excel_bytes:
+                excel_source = BytesIO(self.excel_bytes)
+            elif self.excel_path and os.path.exists(self.excel_path):
+                excel_source = self.excel_path
+            else:
+                st.error("No Excel source provided")
+                return False
+            
             # Load sheets into DataFrames
-            self.students = pd.read_excel(self.excel_path, sheet_name='Students')
-            self.admissions = pd.read_excel(self.excel_path, sheet_name='Admissions')
-            self.exam_notes = pd.read_excel(self.excel_path, sheet_name='Exam Notes')
-            self.scores_est1 = pd.read_excel(self.excel_path, sheet_name='Scores EST I')
-            self.scores_est2 = pd.read_excel(self.excel_path, sheet_name='Scores EST II')
-            self.attendance_est1 = pd.read_excel(self.excel_path, sheet_name='Attendance EST I')
-            self.attendance_est2 = pd.read_excel(self.excel_path, sheet_name='Attendance ESTII')
-            self.est_scale = pd.read_excel(self.excel_path, sheet_name='EST Scale')
-            self.note_types = pd.read_excel(self.excel_path, sheet_name='Note Types')
+            self.students = pd.read_excel(excel_source, sheet_name='Students')
+            self.admissions = pd.read_excel(excel_source, sheet_name='Admissions')
+            self.exam_notes = pd.read_excel(excel_source, sheet_name='Exam Notes')
+            self.scores_est1 = pd.read_excel(excel_source, sheet_name='Scores EST I')
+            self.scores_est2 = pd.read_excel(excel_source, sheet_name='Scores EST II')
+            self.attendance_est1 = pd.read_excel(excel_source, sheet_name='Attendance EST I')
+            self.attendance_est2 = pd.read_excel(excel_source, sheet_name='Attendance ESTII')
+            self.est_scale = pd.read_excel(excel_source, sheet_name='EST Scale')
+            self.note_types = pd.read_excel(excel_source, sheet_name='Note Types')
             
-            # Clean column names
-            for df in [self.students, self.admissions, self.exam_notes]:
-                df.columns = df.columns.str.strip()
+            # Debug: Print sheet info
+            st.write(f"✅ Loaded sheets: Students ({len(self.students)} rows), Scores EST I ({len(self.scores_est1)} rows)")
             
-            # Clean email columns
-            if 'email' in self.students.columns:
-                self.students['email'] = self.students['email'].astype(str).str.strip().str.lower()
-            if 'email' in self.admissions.columns:
-                self.admissions['email'] = self.admissions['email'].astype(str).str.strip().str.lower()
-            if 'email' in self.exam_notes.columns:
-                self.exam_notes['email'] = self.exam_notes['email'].astype(str).str.strip().str.lower()
+            # Standardize column names
+            self.standardize_column_names()
+            
+            # Clean data
+            self.clean_data()
             
             return True
             
         except Exception as e:
-            st.error(f"Error loading Excel file: {e}")
+            st.error(f"❌ Error loading Excel file: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
+    
+    def standardize_column_names(self):
+        """Standardize column names across all dataframes"""
+        # Map for email column standardization
+        email_column_mapping = {
+            'Email': 'email',
+            'Email ': 'email',
+            'email ': 'email',
+            'Email Address': 'email'
+        }
+        
+        # Process each dataframe
+        dataframes = {
+            'students': self.students,
+            'admissions': self.admissions,
+            'exam_notes': self.exam_notes,
+            'scores_est1': self.scores_est1,
+            'scores_est2': self.scores_est2,
+            'attendance_est1': self.attendance_est1,
+            'attendance_est2': self.attendance_est2
+        }
+        
+        for name, df in dataframes.items():
+            if df is not None:
+                # Strip whitespace from column names
+                df.columns = df.columns.str.strip()
+                
+                # Rename email columns
+                for old_col, new_col in email_column_mapping.items():
+                    if old_col in df.columns:
+                        df.rename(columns={old_col: new_col}, inplace=True)
+                
+                # Update the attribute
+                setattr(self, name, df)
+    
+    def clean_data(self):
+        """Clean and standardize data"""
+        # Clean email columns
+        for df in [self.students, self.admissions, self.exam_notes]:
+            if df is not None and 'email' in df.columns:
+                df['email'] = df['email'].astype(str).str.strip().str.lower()
+        
+        # Clean scores dataframes
+        if self.scores_est1 is not None and 'Email' in self.scores_est1.columns:
+            self.scores_est1['Email'] = self.scores_est1['Email'].astype(str).str.strip().str.lower()
+            self.scores_est1.rename(columns={'Email': 'email'}, inplace=True)
+        
+        if self.scores_est2 is not None and 'Email' in self.scores_est2.columns:
+            self.scores_est2['Email'] = self.scores_est2['Email'].astype(str).str.strip().str.lower()
+            self.scores_est2.rename(columns={'Email': 'email'}, inplace=True)
+        
+        # Clean attendance dataframes
+        if self.attendance_est1 is not None and 'Email' in self.attendance_est1.columns:
+            self.attendance_est1['Email'] = self.attendance_est1['Email'].astype(str).str.strip().str.lower()
+            self.attendance_est1.rename(columns={'Email': 'email'}, inplace=True)
+        
+        if self.attendance_est2 is not None and 'Email' in self.attendance_est2.columns:
+            self.attendance_est2['Email'] = self.attendance_est2['Email'].astype(str).str.strip().str.lower()
+            self.attendance_est2.rename(columns={'Email': 'email'}, inplace=True)
     
     def create_excel_with_formulas_bytes(self):
         """Create Excel file with formulas and return as bytes"""
@@ -156,6 +226,7 @@ class ESTDataProcessor:
     def process_data(self):
         """Process data using Python calculations and return DataFrame"""
         try:
+            st.write(f"🔍 Starting data processing for {len(self.students)} students...")
             final_data = []
             
             for idx, student in self.students.iterrows():
@@ -230,10 +301,15 @@ class ESTDataProcessor:
                 final_data.append(row)
             
             df = pd.DataFrame(final_data)
+            st.write(f"✅ Processed {len(df)} student records")
+            st.write(f"📊 Data preview (first 3 rows):")
+            st.write(df.head(3))
             return df
             
         except Exception as e:
-            st.error(f"Error processing data: {e}")
+            st.error(f"❌ Error processing data: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     # Helper methods
@@ -266,7 +342,7 @@ class ESTDataProcessor:
     
     def get_registration_status(self, email):
         """Get registration status for a student"""
-        if not email:
+        if not email or self.admissions is None:
             return 'No', 'No'
         
         student_admissions = self.admissions[self.admissions['email'] == email]
@@ -280,22 +356,25 @@ class ESTDataProcessor:
             return 'No', 'No'
         
         # EST I attendance
-        est1_att = self.attendance_est1[self.attendance_est1['Email'] == email]
         took_est1 = 'No'
-        if not est1_att.empty:
-            time_in = est1_att['Time In'].iloc[0]
-            if pd.notna(time_in):
-                took_est1 = 'Yes'
+        if self.attendance_est1 is not None and 'email' in self.attendance_est1.columns:
+            est1_att = self.attendance_est1[self.attendance_est1['email'] == email]
+            if not est1_att.empty:
+                time_in = est1_att['Time In'].iloc[0] if 'Time In' in est1_att.columns else None
+                if pd.notna(time_in):
+                    took_est1 = 'Yes'
         
         # EST II attendance
-        est2_att = self.attendance_est2[self.attendance_est2['Email'] == email]
-        took_est2 = 'Yes' if not est2_att.empty else 'No'
+        took_est2 = 'No'
+        if self.attendance_est2 is not None and 'email' in self.attendance_est2.columns:
+            est2_att = self.attendance_est2[self.attendance_est2['email'] == email]
+            took_est2 = 'Yes' if not est2_att.empty else 'No'
         
         return took_est1, took_est2
     
     def count_notes(self, email):
         """Count notes for a student"""
-        if not email:
+        if not email or self.exam_notes is None:
             return 0
         return len(self.exam_notes[self.exam_notes['email'] == email])
     
@@ -304,23 +383,35 @@ class ESTDataProcessor:
         if not email:
             return ''
         
-        notes = self.exam_notes[self.exam_notes['email'] == email]
-        est1_att = self.attendance_est1[self.attendance_est1['Email'] == email]
-        
         issues = []
         
+        # Check notes
+        if self.exam_notes is not None:
+            notes = self.exam_notes[self.exam_notes['email'] == email]
+        else:
+            notes = pd.DataFrame()
+        
+        # Check attendance
+        if self.attendance_est1 is not None and 'email' in self.attendance_est1.columns:
+            est1_att = self.attendance_est1[self.attendance_est1['email'] == email]
+        else:
+            est1_att = pd.DataFrame()
+        
         # Check if marked absent but has attendance
-        if 'Absent' in notes['Note'].values:
+        if not notes.empty and 'Absent' in notes['Note'].values:
             if not est1_att.empty:
-                time_in = est1_att['Time In'].iloc[0]
+                time_in = est1_att['Time In'].iloc[0] if 'Time In' in est1_att.columns else None
                 if pd.notna(time_in):
                     issues.append('Marked absent but attended')
         
         # Check if has attendance but no scores
         if not est1_att.empty:
-            time_in = est1_att['Time In'].iloc[0]
+            time_in = est1_att['Time In'].iloc[0] if 'Time In' in est1_att.columns else None
             if pd.notna(time_in):
-                scores = self.scores_est1[self.scores_est1['Email'] == email]
+                if self.scores_est1 is not None:
+                    scores = self.scores_est1[self.scores_est1['email'] == email]
+                else:
+                    scores = pd.DataFrame()
                 if scores.empty or scores.isna().all().all():
                     issues.append('Attended but no scores')
         
@@ -328,34 +419,36 @@ class ESTDataProcessor:
     
     def check_cheating(self, email):
         """Check if student has cheating note"""
-        if not email:
+        if not email or self.exam_notes is None:
             return ''
         notes = self.exam_notes[self.exam_notes['email'] == email]
-        return 'Yes' if 'Cheating' in notes['Note'].values else ''
+        return 'Yes' if not notes.empty and 'Cheating' in notes['Note'].values else ''
     
     def get_school_name(self, email):
         """Get school name for a student"""
-        if not email:
+        if not email or self.admissions is None:
             return ''
         schools = self.admissions[self.admissions['email'] == email]['School Name']
         return schools.iloc[0] if not schools.empty else ''
     
     def calculate_est1_literacy(self, email):
         """Calculate EST I Literacy score"""
-        if not email:
+        if not email or self.scores_est1 is None:
             return None
         
-        scores = self.scores_est1[self.scores_est1['Email'] == email]
+        scores = self.scores_est1[self.scores_est1['email'] == email]
         if scores.empty:
             return None
         
         # Check for misconduct
-        notes = self.exam_notes[self.exam_notes['email'] == email]
-        has_misconduct = 'Misconduct' in notes['Note'].values
+        has_misconduct = False
+        if self.exam_notes is not None:
+            notes = self.exam_notes[self.exam_notes['email'] == email]
+            has_misconduct = not notes.empty and 'Misconduct' in notes['Note'].values
         
         # Get raw scores
-        literacy1_raw = scores['EST I Literacy 1'].iloc[0] if pd.notna(scores['EST I Literacy 1'].iloc[0]) else 0
-        literacy2_raw = scores['EST I Literacy 2'].iloc[0] if pd.notna(scores['EST I Literacy 2'].iloc[0]) else 0
+        literacy1_raw = scores['EST I Literacy 1'].iloc[0] if 'EST I Literacy 1' in scores.columns and pd.notna(scores['EST I Literacy 1'].iloc[0]) else 0
+        literacy2_raw = scores['EST I Literacy 2'].iloc[0] if 'EST I Literacy 2' in scores.columns and pd.notna(scores['EST I Literacy 2'].iloc[0]) else 0
         
         # Apply raises if no misconduct
         if not has_misconduct:
@@ -373,20 +466,22 @@ class ESTDataProcessor:
     
     def calculate_est1_math(self, email):
         """Calculate EST I Math score"""
-        if not email:
+        if not email or self.scores_est1 is None:
             return None
         
-        scores = self.scores_est1[self.scores_est1['Email'] == email]
+        scores = self.scores_est1[self.scores_est1['email'] == email]
         if scores.empty:
             return None
         
         # Check for misconduct
-        notes = self.exam_notes[self.exam_notes['email'] == email]
-        has_misconduct = 'Misconduct' in notes['Note'].values
+        has_misconduct = False
+        if self.exam_notes is not None:
+            notes = self.exam_notes[self.exam_notes['email'] == email]
+            has_misconduct = not notes.empty and 'Misconduct' in notes['Note'].values
         
         # Get raw scores
-        math_no_calc = scores['EST I Math without Calculator'].iloc[0] if pd.notna(scores['EST I Math without Calculator'].iloc[0]) else 0
-        math_with_calc = scores['EST I Math with Calculator'].iloc[0] if pd.notna(scores['EST I Math with Calculator'].iloc[0]) else 0
+        math_no_calc = scores['EST I Math without Calculator'].iloc[0] if 'EST I Math without Calculator' in scores.columns and pd.notna(scores['EST I Math without Calculator'].iloc[0]) else 0
+        math_with_calc = scores['EST I Math with Calculator'].iloc[0] if 'EST I Math with Calculator' in scores.columns and pd.notna(scores['EST I Math with Calculator'].iloc[0]) else 0
         
         # Apply raises if no misconduct
         if not has_misconduct:
@@ -400,7 +495,7 @@ class ESTDataProcessor:
     
     def calculate_est2_subject(self, email, subject):
         """Calculate EST II subject score"""
-        if not email:
+        if not email or self.scores_est2 is None:
             return None
         
         if subject == 'Math 1':
@@ -415,7 +510,7 @@ class ESTDataProcessor:
         else:
             return None
         
-        scores = self.scores_est2[self.scores_est2['Email'] == email]
+        scores = self.scores_est2[self.scores_est2['email'] == email]
         if scores.empty or col not in scores.columns:
             return None
         
@@ -424,8 +519,10 @@ class ESTDataProcessor:
             return None
         
         # Check for misconduct
-        notes = self.exam_notes[self.exam_notes['email'] == email]
-        has_misconduct = 'Misconduct' in notes['Note'].values
+        has_misconduct = False
+        if self.exam_notes is not None:
+            notes = self.exam_notes[self.exam_notes['email'] == email]
+            has_misconduct = not notes.empty and 'Misconduct' in notes['Note'].values
         
         # Apply raise based on average
         if not has_misconduct:
@@ -440,7 +537,7 @@ class ESTDataProcessor:
     
     def scale_score(self, raw_score, subject):
         """Scale raw score using EST Scale"""
-        if pd.isna(raw_score):
+        if pd.isna(raw_score) or self.est_scale is None:
             return None
         
         # Map subjects to scale columns
@@ -455,17 +552,20 @@ class ESTDataProcessor:
         
         for key, (raw_col, scale_col) in scale_map.items():
             if key in subject:
-                scale_df = self.est_scale.iloc[:, [raw_col, scale_col]].dropna()
-                scale_df.columns = ['Raw', 'Scaled']
-                
-                # Find closest raw score
-                scale_df = scale_df.sort_values('Raw')
-                match = scale_df[scale_df['Raw'] <= raw_score]
-                
-                if match.empty:
-                    return scale_df['Scaled'].iloc[0]
-                else:
-                    return match.iloc[-1]['Scaled']
+                try:
+                    scale_df = self.est_scale.iloc[:, [raw_col, scale_col]].dropna()
+                    scale_df.columns = ['Raw', 'Scaled']
+                    
+                    # Find closest raw score
+                    scale_df = scale_df.sort_values('Raw')
+                    match = scale_df[scale_df['Raw'] <= raw_score]
+                    
+                    if match.empty:
+                        return scale_df['Scaled'].iloc[0]
+                    else:
+                        return match.iloc[-1]['Scaled']
+                except:
+                    return None
         
         return None
 
@@ -486,31 +586,61 @@ class StreamlitESTDashboard:
             st.session_state.df = None
         if 'excel_bytes' not in st.session_state:
             st.session_state.excel_bytes = None
+        if 'processor' not in st.session_state:
+            st.session_state.processor = None
+        if 'uploaded_file' not in st.session_state:
+            st.session_state.uploaded_file = None
     
-    def load_data(self):
-        """Load and process data"""
+    def load_data_from_file(self, file_path=None, file_bytes=None):
+        """Load and process data from file"""
         if not st.session_state.data_loaded:
             with st.spinner("📊 Loading and processing data..."):
                 try:
-                    self.processor = ESTDataProcessor("Employment Test - Dataset - TASK A.xlsx")
-                    if self.processor:
-                        # Process data for dashboard
-                        st.session_state.df = self.processor.process_data()
-                        
-                        # Create Excel with formulas
-                        excel_bytes = self.processor.create_excel_with_formulas_bytes()
-                        if excel_bytes:
-                            st.session_state.excel_bytes = excel_bytes
-                        
-                        st.session_state.data_loaded = True
-                        st.success(f"✅ Successfully loaded {len(st.session_state.df)} student records")
+                    # Check if we should use sample data
+                    use_sample = False
+                    
+                    if file_bytes:
+                        self.processor = ESTDataProcessor(excel_bytes=file_bytes)
+                    elif file_path and os.path.exists(file_path):
+                        self.processor = ESTDataProcessor(excel_path=file_path)
+                    else:
+                        st.warning("No data file found. Using sample data for demonstration.")
+                        use_sample = True
+                    
+                    if not use_sample:
+                        if self.processor and self.processor.load_all_sheets():
+                            # Process data for dashboard
+                            st.session_state.df = self.processor.process_data()
+                            
+                            if st.session_state.df is not None:
+                                # Create Excel with formulas
+                                excel_bytes = self.processor.create_excel_with_formulas_bytes()
+                                if excel_bytes:
+                                    st.session_state.excel_bytes = excel_bytes
+                                
+                                st.session_state.processor = self.processor
+                                st.session_state.data_loaded = True
+                                st.success(f"✅ Successfully loaded {len(st.session_state.df)} student records")
+                            else:
+                                st.error("Failed to process data")
+                                use_sample = True
+                        else:
+                            st.error("Failed to load data from file")
+                            use_sample = True
+                    
+                    if use_sample:
+                        self.create_sample_data()
+                        st.info("Using sample data for demonstration")
                         
                 except Exception as e:
                     st.error(f"❌ Error loading data: {e}")
+                    import traceback
+                    traceback.print_exc()
                     st.info("Using sample data for demonstration")
                     self.create_sample_data()
         else:
             self.df = st.session_state.df
+            self.processor = st.session_state.processor
     
     def create_sample_data(self):
         """Create sample data for demo"""
@@ -548,13 +678,9 @@ class StreamlitESTDashboard:
             st.title("📊 EST Dashboard")
             st.markdown("---")
             
-            # Load data button
-            if not st.session_state.data_loaded:
-                if st.button("🚀 Load Data", type="primary", use_container_width=True):
-                    self.load_data()
-                    st.rerun()
-            else:
-                st.success("✅ Data loaded")
+            # Data info
+            if st.session_state.data_loaded and self.df is not None:
+                st.success(f"✅ {len(self.df)} students loaded")
             
             st.markdown("---")
             
@@ -562,11 +688,15 @@ class StreamlitESTDashboard:
             st.subheader("🔍 Filters")
             
             # School filter
-            schools = ['All Schools'] + sorted(self.df['School Name'].dropna().unique().tolist())
+            schools = ['All Schools']
+            if self.df is not None and 'School Name' in self.df.columns:
+                schools += sorted(self.df['School Name'].dropna().unique().tolist())
             selected_school = st.selectbox("Select School", schools)
             
             # Grade filter
-            grades = ['All Grades'] + sorted(self.df['Grade'].dropna().unique().tolist())
+            grades = ['All Grades']
+            if self.df is not None and 'Grade' in self.df.columns:
+                grades += sorted(self.df['Grade'].dropna().unique().tolist())
             selected_grade = st.selectbox("Select Grade", grades)
             
             # Exam filter
@@ -574,15 +704,21 @@ class StreamlitESTDashboard:
             selected_exam = st.selectbox("Exam Type", exam_options)
             
             # Score range filter
-            if not self.df['EST I Total'].isna().all():
-                min_score = int(self.df['EST I Total'].min())
-                max_score = int(self.df['EST I Total'].max())
-                score_range = st.slider(
-                    "EST I Score Range",
-                    min_value=min_score,
-                    max_value=max_score,
-                    value=(min_score, max_score)
-                )
+            if self.df is not None and 'EST I Total' in self.df.columns and not self.df['EST I Total'].isna().all():
+                valid_scores = self.df['EST I Total'].dropna()
+                if len(valid_scores) > 0:
+                    min_score = int(valid_scores.min())
+                    max_score = int(valid_scores.max())
+                    score_range = st.slider(
+                        "EST I Score Range",
+                        min_value=min_score,
+                        max_value=max_score,
+                        value=(min_score, max_score)
+                    )
+                else:
+                    score_range = None
+            else:
+                score_range = None
             
             # Cheating cases filter
             show_cheating_only = st.checkbox("Show Cheating Cases Only")
@@ -610,13 +746,22 @@ class StreamlitESTDashboard:
                     mime="text/csv",
                     use_container_width=True
                 )
+            
+            st.markdown("---")
+            
+            # Reset button
+            if st.button("🔄 Reset & Load New Data", type="secondary", use_container_width=True):
+                for key in ['data_loaded', 'df', 'excel_bytes', 'processor', 'uploaded_file']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
         
         # Apply filters
         filtered_df = self.apply_filters(
             selected_school, 
             selected_grade, 
             selected_exam,
-            score_range if 'score_range' in locals() else None,
+            score_range,
             show_cheating_only
         )
         
@@ -652,6 +797,9 @@ class StreamlitESTDashboard:
     
     def apply_filters(self, school, grade, exam, score_range, cheating_only):
         """Apply filters to data"""
+        if self.df is None:
+            return pd.DataFrame()
+        
         filtered = self.df.copy()
         
         # School filter
@@ -671,20 +819,24 @@ class StreamlitESTDashboard:
             filtered = filtered[(filtered['Took EST I?'] == 'Yes') & (filtered['Took EST II?'] == 'Yes')]
         
         # Score range filter
-        if score_range is not None:
+        if score_range is not None and 'EST I Total' in filtered.columns:
             filtered = filtered[
                 (filtered['EST I Total'] >= score_range[0]) & 
                 (filtered['EST I Total'] <= score_range[1])
             ]
         
         # Cheating filter
-        if cheating_only:
+        if cheating_only and 'Cheating Flag' in filtered.columns:
             filtered = filtered[filtered['Cheating Flag'] == 'Yes']
         
         return filtered
     
     def display_metrics(self, data):
         """Display key metrics"""
+        if data.empty:
+            st.warning("No data available with current filters")
+            return
+        
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
@@ -692,33 +844,37 @@ class StreamlitESTDashboard:
             st.metric("Total Students", total_students)
         
         with col2:
-            est1_takers = data[data['Took EST I?'] == 'Yes'].shape[0]
+            est1_takers = data[data['Took EST I?'] == 'Yes'].shape[0] if 'Took EST I?' in data.columns else 0
             st.metric("EST I Takers", est1_takers)
         
         with col3:
-            est2_takers = data[data['Took EST II?'] == 'Yes'].shape[0]
+            est2_takers = data[data['Took EST II?'] == 'Yes'].shape[0] if 'Took EST II?' in data.columns else 0
             st.metric("EST II Takers", est2_takers)
         
         with col4:
-            if not data['EST I Total'].isna().all():
+            if 'EST I Total' in data.columns and not data['EST I Total'].isna().all():
                 avg_score = data['EST I Total'].mean()
                 st.metric("Avg EST I Score", f"{avg_score:.0f}")
             else:
                 st.metric("Avg EST I Score", "N/A")
         
         with col5:
-            cheating_cases = data[data['Cheating Flag'] == 'Yes'].shape[0]
+            cheating_cases = data[data['Cheating Flag'] == 'Yes'].shape[0] if 'Cheating Flag' in data.columns else 0
             st.metric("Cheating Cases", cheating_cases)
         
         st.markdown("---")
     
     def overview_tab(self, data):
         """Overview tab content"""
+        if data.empty:
+            st.info("No data available with current filters")
+            return
+        
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("📊 EST I Score Distribution")
-            if not data['EST I Total'].isna().all():
+            if 'EST I Total' in data.columns and not data['EST I Total'].isna().all():
                 fig = px.histogram(
                     data, 
                     x='EST I Total',
@@ -738,10 +894,10 @@ class StreamlitESTDashboard:
             reg_att_data = pd.DataFrame({
                 'Category': ['EST I Registered', 'EST I Attended', 'EST II Registered', 'EST II Attended'],
                 'Count': [
-                    data[data['Registered EST I?'] == 'Yes'].shape[0],
-                    data[data['Took EST I?'] == 'Yes'].shape[0],
-                    data[data['Registered EST II?'] == 'Yes'].shape[0],
-                    data[data['Took EST II?'] == 'Yes'].shape[0]
+                    data[data['Registered EST I?'] == 'Yes'].shape[0] if 'Registered EST I?' in data.columns else 0,
+                    data[data['Took EST I?'] == 'Yes'].shape[0] if 'Took EST I?' in data.columns else 0,
+                    data[data['Registered EST II?'] == 'Yes'].shape[0] if 'Registered EST II?' in data.columns else 0,
+                    data[data['Took EST II?'] == 'Yes'].shape[0] if 'Took EST II?' in data.columns else 0
                 ]
             })
             
@@ -762,7 +918,11 @@ class StreamlitESTDashboard:
     
     def schools_tab(self, data):
         """Schools analysis tab"""
-        if data['School Name'].nunique() > 1:
+        if data.empty:
+            st.info("No data available with current filters")
+            return
+        
+        if 'School Name' in data.columns and data['School Name'].nunique() > 1:
             st.subheader("🏫 School Performance Comparison")
             
             # Calculate school statistics
@@ -784,56 +944,77 @@ class StreamlitESTDashboard:
             st.dataframe(school_stats, use_container_width=True)
             
         else:
-            st.info(f"Showing data for {data['School Name'].iloc[0] if not data.empty else 'selected school'}")
+            school_name = data['School Name'].iloc[0] if not data.empty and 'School Name' in data.columns else 'selected school'
+            st.info(f"Showing data for {school_name}")
     
     def performance_tab(self, data):
         """Performance analysis tab"""
+        if data.empty:
+            st.info("No data available with current filters")
+            return
+        
         st.subheader("📊 Performance Analysis")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if not data['EST I Literacy'].isna().all() and not data['EST I Math'].isna().all():
-                st.subheader("📈 Literacy vs Math Scores")
-                # FIXED: Removed trendline="ols" to avoid statsmodels dependency
-                fig = px.scatter(
-                    data,
-                    x='EST I Literacy',
-                    y='EST I Math',
-                    color='Grade',
-                    title="Correlation between Literacy and Math Scores",
-                    hover_data=['First Name', 'Last Name', 'School Name']
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            if 'EST I Literacy' in data.columns and 'EST I Math' in data.columns:
+                if not data['EST I Literacy'].isna().all() and not data['EST I Math'].isna().all():
+                    st.subheader("📈 Literacy vs Math Scores")
+                    fig = px.scatter(
+                        data,
+                        x='EST I Literacy',
+                        y='EST I Math',
+                        color='Grade' if 'Grade' in data.columns else None,
+                        title="Correlation between Literacy and Math Scores",
+                        hover_data=['First Name', 'Last Name', 'School Name'] if 'First Name' in data.columns else None
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Insufficient score data for scatter plot")
         
         with col2:
-            if not data['EST I Total'].isna().all():
-                st.subheader("📊 Score Distribution by Grade")
-                fig = px.box(
-                    data,
-                    x='Grade',
-                    y='EST I Total',
-                    color='Grade',
-                    title="EST I Score Distribution by Grade"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            if 'EST I Total' in data.columns and 'Grade' in data.columns:
+                if not data['EST I Total'].isna().all():
+                    st.subheader("📊 Score Distribution by Grade")
+                    fig = px.box(
+                        data,
+                        x='Grade',
+                        y='EST I Total',
+                        color='Grade',
+                        title="EST I Score Distribution by Grade"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No EST I score data available")
         
         # Top performers
-        if not data['EST I Total'].isna().all():
-            st.subheader("🏆 Top 10 Performers")
-            top_performers = data.nlargest(10, 'EST I Total')[['First Name', 'Last Name', 'Grade', 'School Name', 'EST I Total']]
-            st.dataframe(top_performers, use_container_width=True)
+        if 'EST I Total' in data.columns:
+            if not data['EST I Total'].isna().all():
+                st.subheader("🏆 Top 10 Performers")
+                columns_to_show = ['First Name', 'Last Name', 'Grade', 'School Name', 'EST I Total']
+                available_columns = [col for col in columns_to_show if col in data.columns]
+                
+                if available_columns:
+                    top_performers = data.nlargest(10, 'EST I Total')[available_columns]
+                    st.dataframe(top_performers, use_container_width=True)
+            else:
+                st.info("No EST I score data available")
     
     def issues_tab(self, data):
         """Issues and quality control tab"""
+        if data.empty:
+            st.info("No data available with current filters")
+            return
+        
         st.subheader("⚠️ Data Quality Issues")
         
         total_students = len(data)
         
         # Calculate issues
-        attendance_issues = data[data['EST I Attendance Issues?'] != ''].shape[0]
-        missing_scores = data['EST I Total'].isna().sum()
-        cheating_cases = data[data['Cheating Flag'] == 'Yes'].shape[0]
+        attendance_issues = data[data['EST I Attendance Issues?'] != ''].shape[0] if 'EST I Attendance Issues?' in data.columns else 0
+        missing_scores = data['EST I Total'].isna().sum() if 'EST I Total' in data.columns else 0
+        cheating_cases = data[data['Cheating Flag'] == 'Yes'].shape[0] if 'Cheating Flag' in data.columns else 0
         
         # Display metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -856,22 +1037,38 @@ class StreamlitESTDashboard:
         
         with col1:
             st.subheader("🚨 Students with Attendance Issues")
-            issues_df = data[data['EST I Attendance Issues?'] != ''][['First Name', 'Last Name', 'email', 'EST I Attendance Issues?']]
-            if not issues_df.empty:
-                st.dataframe(issues_df, use_container_width=True)
+            if 'EST I Attendance Issues?' in data.columns:
+                issues_df = data[data['EST I Attendance Issues?'] != ''][['First Name', 'Last Name', 'email', 'EST I Attendance Issues?']]
+                if not issues_df.empty:
+                    st.dataframe(issues_df, use_container_width=True)
+                else:
+                    st.success("No attendance issues found!")
             else:
-                st.success("No attendance issues found!")
+                st.info("Attendance issues data not available")
         
         with col2:
             st.subheader("🚫 Cheating Cases")
-            cheating_df = data[data['Cheating Flag'] == 'Yes'][['First Name', 'Last Name', 'email', 'School Name', 'Grade']]
-            if not cheating_df.empty:
-                st.dataframe(cheating_df, use_container_width=True)
+            if 'Cheating Flag' in data.columns:
+                columns_to_show = ['First Name', 'Last Name', 'email', 'School Name', 'Grade']
+                available_columns = [col for col in columns_to_show if col in data.columns]
+                
+                if available_columns:
+                    cheating_df = data[data['Cheating Flag'] == 'Yes'][available_columns]
+                    if not cheating_df.empty:
+                        st.dataframe(cheating_df, use_container_width=True)
+                    else:
+                        st.success("No cheating cases found!")
+                else:
+                    st.info("Student information columns not available")
             else:
-                st.success("No cheating cases found!")
+                st.info("Cheating flag data not available")
     
     def students_tab(self, data):
         """Students details tab"""
+        if data.empty:
+            st.info("No data available with current filters")
+            return
+        
         st.subheader("👨‍🎓 Student Details")
         
         # Search and filter
@@ -879,10 +1076,8 @@ class StreamlitESTDashboard:
         with col1:
             search_term = st.text_input("🔍 Search by Name or Email")
         with col2:
-            sort_by = st.selectbox(
-                "Sort by",
-                ['EST I Total (High to Low)', 'EST I Total (Low to High)', 'Name (A-Z)', 'Name (Z-A)']
-            )
+            sort_options = ['EST I Total (High to Low)', 'EST I Total (Low to High)', 'Name (A-Z)', 'Name (Z-A)']
+            sort_by = st.selectbox("Sort by", sort_options)
         
         # Filter data
         filtered_data = data.copy()
@@ -904,14 +1099,17 @@ class StreamlitESTDashboard:
             filtered_data = filtered_data.sort_values(['Last Name', 'First Name'], ascending=False)
         
         # Display student table
-        st.dataframe(
-            filtered_data[[
-                'First Name', 'Last Name', 'email', 'Grade', 'School Name',
-                'EST I Total', 'EST I Literacy', 'EST I Math',
-                'Registered EST I?', 'Took EST I?', 'Cheating Flag'
-            ]],
-            use_container_width=True
-        )
+        columns_to_show = [
+            'First Name', 'Last Name', 'email', 'Grade', 'School Name',
+            'EST I Total', 'EST I Literacy', 'EST I Math',
+            'Registered EST I?', 'Took EST I?', 'Cheating Flag'
+        ]
+        available_columns = [col for col in columns_to_show if col in filtered_data.columns]
+        
+        if available_columns:
+            st.dataframe(filtered_data[available_columns], use_container_width=True)
+        else:
+            st.info("No student data columns available")
 
 # ============================================
 # SECTION 3: MAIN STREAMLIT APP
@@ -948,6 +1146,10 @@ def main():
             background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
             color: white;
         }
+        .stDownloadButton > button {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            color: white;
+        }
     </style>
     """, unsafe_allow_html=True)
     
@@ -959,21 +1161,53 @@ def main():
     
     # Check if data is loaded
     if not st.session_state.data_loaded:
-        # Show welcome screen
+        # Show data loading options
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("""
             <div style="text-align: center; padding: 2rem; background: #f8f9fa; border-radius: 10px;">
                 <h2>📊 Welcome to EST Assessment System</h2>
                 <p>This system processes EST exam data and provides interactive analytics.</p>
-                <p>Click the button below to load and process the data.</p>
+                <p>Choose an option below to load data:</p>
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button("🚀 Load & Process Data", type="primary", use_container_width=True):
-                with st.spinner("Processing data..."):
-                    dashboard.load_data()
-                st.rerun()
+            # Data loading options
+            option = st.radio(
+                "Select data source:",
+                ["📁 Use provided Excel file", "⬆️ Upload my own Excel file", "🎲 Use sample data"],
+                index=0
+            )
+            
+            if st.button("🚀 Load Data", type="primary", use_container_width=True):
+                if option == "📁 Use provided Excel file":
+                    # Try to load the provided file
+                    file_path = "Employment Test - Dataset - TASK A.xlsx"
+                    if os.path.exists(file_path):
+                        dashboard.load_data_from_file(file_path=file_path)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ File not found: {file_path}")
+                        st.info("Please upload your file or use sample data.")
+                
+                elif option == "⬆️ Upload my own Excel file":
+                    # File uploader
+                    uploaded_file = st.file_uploader(
+                        "Upload Excel file", 
+                        type=['xlsx', 'xls'],
+                        key="excel_uploader"
+                    )
+                    
+                    if uploaded_file is not None:
+                        st.session_state.uploaded_file = uploaded_file.getvalue()
+                        dashboard.load_data_from_file(file_bytes=st.session_state.uploaded_file)
+                        st.rerun()
+                    else:
+                        st.warning("Please upload an Excel file first.")
+                
+                elif option == "🎲 Use sample data":
+                    dashboard.create_sample_data()
+                    st.rerun()
             
             st.markdown("---")
             
@@ -1004,6 +1238,7 @@ def main():
     else:
         # Run dashboard with loaded data
         dashboard.df = st.session_state.df
+        dashboard.processor = st.session_state.processor
         dashboard.run_dashboard()
 
 # Run the app
